@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	common "csd-pilote/backend/modules/common/config"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -159,22 +161,22 @@ func findConfigPath() string {
 	return ""
 }
 
-// applyDefaults sets default values for missing configuration
+// applyDefaults sets default values from ConfigDefaults (single source of truth)
 func applyDefaults(cfg *Config) {
 	if cfg.Seeds.CorePath == "" {
-		cfg.Seeds.CorePath = "data/seeds/core"
+		cfg.Seeds.CorePath = common.DefaultSeedsCoreDataPath
 	}
 	if cfg.Seeds.AppPath == "" {
-		cfg.Seeds.AppPath = "data/seeds/app"
+		cfg.Seeds.AppPath = common.DefaultSeedsAppDataPath
 	}
 	if cfg.CSDCore.URL == "" {
-		cfg.CSDCore.URL = "http://localhost:9090"
+		cfg.CSDCore.URL = common.DefaultCSDCoreURL
 	}
 	if cfg.CSDCore.GraphQLEndpoint == "" {
-		cfg.CSDCore.GraphQLEndpoint = "/core/api/latest/query"
+		cfg.CSDCore.GraphQLEndpoint = common.DefaultCSDCoreGraphQL
 	}
 	if cfg.Logging.Level == "" {
-		cfg.Logging.Level = "info"
+		cfg.Logging.Level = common.DefaultLogLevel
 	}
 }
 

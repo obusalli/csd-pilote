@@ -1,19 +1,29 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  CSDLayoutPage,
-  CSDBox,
+  CSDDetailPage,
+  CSDStack,
   CSDTypography,
   CSDPaper,
-  CSDGrid,
   CSDChip,
   CSDTabs,
   CSDTab,
-  CSDButton,
+  CSDActionButton,
   CSDDataGrid,
   CSDCircularProgress,
   CSDAlert,
+  CSDIcon,
+  CSDInfoGrid,
+  CSDInfoItem,
 } from 'csd_core/UI';
-import { useBreadcrumb, useParams, useGraphQL, useSnackbar } from 'csd_core/Providers';
+import {
+  useBreadcrumb,
+  useParams,
+  useSnackbar,
+  useTranslation,
+  formatDate,
+} from 'csd_core/Providers';
+import { useGraphQL } from '../../../shared/hooks/useGraphQL';
+import { BREADCRUMBS } from '../../../shared/config/breadcrumbs';
 
 const HYPERVISOR_QUERY = `
   query Hypervisor($id: ID!) {
@@ -129,6 +139,35 @@ interface Hypervisor {
   updatedAt: string;
 }
 
+interface Domain {
+  uuid: string;
+  name: string;
+  state: string;
+  maxMemory: number;
+  memory: number;
+  vcpus: number;
+  autostart: boolean;
+}
+
+interface Network {
+  uuid: string;
+  name: string;
+  bridge: string;
+  active: boolean;
+  autostart: boolean;
+}
+
+interface StoragePool {
+  uuid: string;
+  name: string;
+  state: string;
+  capacity: number;
+  allocation: number;
+  available: number;
+  active: boolean;
+  volumesCount: number;
+}
+
 const formatBytes = (bytes: number) => {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -139,207 +178,248 @@ const formatBytes = (bytes: number) => {
 
 export const HypervisorDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const [tab, setTab] = React.useState(0);
+  const { request } = useGraphQL();
   const { showSuccess, showError } = useSnackbar();
-  const { execute, loading: mutationLoading } = useGraphQL();
+  const { t } = useTranslation();
+
+  const [tab, setTab] = useState(0);
+  const [hypervisor, setHypervisor] = useState<Hypervisor | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [mutationLoading, setMutationLoading] = useState(false);
+
+  // Resources data
+  const [domainsData, setDomainsData] = useState<{ domains: Domain[]; domainsCount: number } | null>(null);
+  const [networksData, setNetworksData] = useState<{ libvirtNetworks: Network[]; libvirtNetworksCount: number } | null>(null);
+  const [storageData, setStorageData] = useState<{ storagePools: StoragePool[]; storagePoolsCount: number } | null>(null);
+  const [resourcesLoading, setResourcesLoading] = useState(false);
 
   useBreadcrumb([
-    { label: 'Pilote', path: '/pilote' },
-    { label: 'Libvirt', path: '/pilote/libvirt' },
-    { label: 'Hypervisors', path: '/pilote/libvirt/hypervisors' },
-    { label: 'Details' },
+    BREADCRUMBS.PILOTE,
+    BREADCRUMBS.LIBVIRT,
+    { labelKey: 'breadcrumb.hypervisors', path: '/pilote/libvirt/hypervisors' },
+    { labelKey: 'common.view' },
   ]);
 
-  const { data: hvData, loading: hvLoading, error: hvError, refetch: refetchHv } = useGraphQL<{ hypervisor: Hypervisor }>(HYPERVISOR_QUERY, { id });
+  // Load hypervisor
+  const loadHypervisor = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await request<{ hypervisor: Hypervisor }>(HYPERVISOR_QUERY, { id });
+      setHypervisor(data.hypervisor);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('hypervisors.error_loading'));
+    } finally {
+      setLoading(false);
+    }
+  }, [id, request, t]);
 
-  const { data: domainsData, loading: domainsLoading, refetch: refetchDomains } = useGraphQL(DOMAINS_QUERY, { hypervisorId: id }, { skip: tab !== 0 || hvData?.hypervisor?.status !== 'CONNECTED' });
-  const { data: networksData, loading: networksLoading } = useGraphQL(NETWORKS_QUERY, { hypervisorId: id }, { skip: tab !== 1 || hvData?.hypervisor?.status !== 'CONNECTED' });
-  const { data: storageData, loading: storageLoading } = useGraphQL(STORAGE_POOLS_QUERY, { hypervisorId: id }, { skip: tab !== 2 || hvData?.hypervisor?.status !== 'CONNECTED' });
+  // Load resources based on tab
+  const loadResources = useCallback(async () => {
+    if (!hypervisor || hypervisor.status !== 'CONNECTED') return;
+
+    setResourcesLoading(true);
+    try {
+      switch (tab) {
+        case 0: {
+          const data = await request<{ domains: Domain[]; domainsCount: number }>(DOMAINS_QUERY, { hypervisorId: id });
+          setDomainsData(data);
+          break;
+        }
+        case 1: {
+          const data = await request<{ libvirtNetworks: Network[]; libvirtNetworksCount: number }>(NETWORKS_QUERY, { hypervisorId: id });
+          setNetworksData(data);
+          break;
+        }
+        case 2: {
+          const data = await request<{ storagePools: StoragePool[]; storagePoolsCount: number }>(STORAGE_POOLS_QUERY, { hypervisorId: id });
+          setStorageData(data);
+          break;
+        }
+      }
+    } catch {
+      // Silently handle resource loading errors
+    } finally {
+      setResourcesLoading(false);
+    }
+  }, [hypervisor, tab, id, request]);
+
+  useEffect(() => {
+    loadHypervisor();
+  }, [loadHypervisor]);
+
+  useEffect(() => {
+    loadResources();
+  }, [tab, loadResources]);
 
   const handleTestConnection = async () => {
+    setMutationLoading(true);
     try {
-      await execute(TEST_CONNECTION, { id });
-      showSuccess('Connection test successful');
-      refetchHv();
-    } catch (error) {
-      showError(`Connection test failed: ${error}`);
+      await request(TEST_CONNECTION, { id });
+      showSuccess(t('hypervisors.connection_test_success'));
+      await loadHypervisor();
+    } catch (err) {
+      showError(t('hypervisors.connection_test_failed', { error: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setMutationLoading(false);
     }
   };
 
   const handleStartDomain = async (uuid: string) => {
+    setMutationLoading(true);
     try {
-      await execute(START_DOMAIN, { hypervisorId: id, uuid });
-      showSuccess('VM started');
-      refetchDomains();
-    } catch (error) {
-      showError(`Failed to start VM: ${error}`);
+      await request(START_DOMAIN, { hypervisorId: id, uuid });
+      showSuccess(t('hypervisors.vm_started'));
+      await loadResources();
+    } catch (err) {
+      showError(t('hypervisors.vm_start_failed', { error: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setMutationLoading(false);
     }
   };
 
   const handleShutdownDomain = async (uuid: string) => {
+    setMutationLoading(true);
     try {
-      await execute(SHUTDOWN_DOMAIN, { hypervisorId: id, uuid });
-      showSuccess('VM shutdown initiated');
-      refetchDomains();
-    } catch (error) {
-      showError(`Failed to shutdown VM: ${error}`);
+      await request(SHUTDOWN_DOMAIN, { hypervisorId: id, uuid });
+      showSuccess(t('hypervisors.vm_shutdown_initiated'));
+      await loadResources();
+    } catch (err) {
+      showError(t('hypervisors.vm_shutdown_failed', { error: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setMutationLoading(false);
     }
   };
 
-  if (hvLoading) {
+  if (loading) {
     return (
-      <CSDLayoutPage title="Loading...">
-        <CSDBox sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+      <CSDDetailPage title={t('common.loading')} loading>
+        <CSDStack spacing={2} alignItems="center" justifyContent="center" sx={{ minHeight: 200 }}>
           <CSDCircularProgress />
-        </CSDBox>
-      </CSDLayoutPage>
+        </CSDStack>
+      </CSDDetailPage>
     );
   }
 
-  if (hvError || !hvData?.hypervisor) {
+  if (error || !hypervisor) {
     return (
-      <CSDLayoutPage title="Hypervisor Not Found">
-        <CSDAlert severity="error">
-          {hvError?.message || 'Hypervisor not found'}
-        </CSDAlert>
-      </CSDLayoutPage>
+      <CSDDetailPage title={t('hypervisors.not_found')}>
+        <CSDAlert severity="error">{error || t('hypervisors.not_found')}</CSDAlert>
+      </CSDDetailPage>
     );
   }
 
-  const hypervisor = hvData.hypervisor;
   const isConnected = hypervisor.status === 'CONNECTED';
 
   const domainColumns = [
-    { field: 'name', headerName: 'Name', flex: 1 },
+    { id: 'name', label: 'common.name', render: (row: Domain) => row.name },
     {
-      field: 'state',
-      headerName: 'State',
-      width: 120,
-      renderCell: (params: { value: string }) => (
-        <CSDChip label={params.value} color={statusColors[params.value] || 'default'} size="small" />
+      id: 'state',
+      label: 'hypervisors.state',
+      render: (row: Domain) => (
+        <CSDChip label={row.state} color={statusColors[row.state] || 'default'} size="small" />
       ),
     },
-    { field: 'vcpus', headerName: 'vCPUs', width: 80 },
+    { id: 'vcpus', label: 'hypervisors.vcpus', render: (row: Domain) => row.vcpus },
     {
-      field: 'memory',
-      headerName: 'Memory',
-      width: 120,
-      renderCell: (params: { value: number }) => formatBytes(params.value * 1024),
+      id: 'memory',
+      label: 'hypervisors.memory',
+      render: (row: Domain) => formatBytes(row.memory * 1024),
     },
     {
-      field: 'actions',
-      headerName: 'Actions',
-      width: 150,
-      renderCell: (params: { row: { uuid: string; state: string } }) => (
-        <CSDBox sx={{ display: 'flex', gap: 1 }}>
-          {params.row.state === 'SHUTOFF' ? (
-            <CSDButton size="small" color="success" onClick={() => handleStartDomain(params.row.uuid)}>
-              Start
-            </CSDButton>
-          ) : params.row.state === 'RUNNING' ? (
-            <CSDButton size="small" color="warning" onClick={() => handleShutdownDomain(params.row.uuid)}>
-              Shutdown
-            </CSDButton>
+      id: 'actions',
+      label: 'common.actions',
+      render: (row: Domain) => (
+        <CSDStack direction="row" spacing={1}>
+          {row.state === 'SHUTOFF' ? (
+            <CSDActionButton size="small" color="success" onClick={() => handleStartDomain(row.uuid)} disabled={mutationLoading}>
+              {t('hypervisors.start')}
+            </CSDActionButton>
+          ) : row.state === 'RUNNING' ? (
+            <CSDActionButton size="small" color="warning" onClick={() => handleShutdownDomain(row.uuid)} disabled={mutationLoading}>
+              {t('hypervisors.shutdown')}
+            </CSDActionButton>
           ) : null}
-        </CSDBox>
+        </CSDStack>
       ),
     },
   ];
 
   const networkColumns = [
-    { field: 'name', headerName: 'Name', flex: 1 },
-    { field: 'bridge', headerName: 'Bridge', width: 150 },
+    { id: 'name', label: 'common.name', render: (row: Network) => row.name },
+    { id: 'bridge', label: 'hypervisors.bridge', render: (row: Network) => row.bridge },
     {
-      field: 'active',
-      headerName: 'Active',
-      width: 100,
-      renderCell: (params: { value: boolean }) => (
-        <CSDChip label={params.value ? 'Yes' : 'No'} color={params.value ? 'success' : 'default'} size="small" />
+      id: 'active',
+      label: 'hypervisors.active',
+      render: (row: Network) => (
+        <CSDChip label={row.active ? t('common.yes') : t('common.no')} color={row.active ? 'success' : 'default'} size="small" />
       ),
     },
     {
-      field: 'autostart',
-      headerName: 'Autostart',
-      width: 100,
-      renderCell: (params: { value: boolean }) => (
-        <CSDChip label={params.value ? 'Yes' : 'No'} color={params.value ? 'success' : 'default'} size="small" />
+      id: 'autostart',
+      label: 'hypervisors.autostart',
+      render: (row: Network) => (
+        <CSDChip label={row.autostart ? t('common.yes') : t('common.no')} color={row.autostart ? 'success' : 'default'} size="small" />
       ),
     },
   ];
 
   const storageColumns = [
-    { field: 'name', headerName: 'Name', flex: 1 },
-    { field: 'state', headerName: 'State', width: 100 },
-    {
-      field: 'capacity',
-      headerName: 'Capacity',
-      width: 120,
-      renderCell: (params: { value: number }) => formatBytes(params.value),
-    },
-    {
-      field: 'allocation',
-      headerName: 'Used',
-      width: 120,
-      renderCell: (params: { value: number }) => formatBytes(params.value),
-    },
-    {
-      field: 'available',
-      headerName: 'Available',
-      width: 120,
-      renderCell: (params: { value: number }) => formatBytes(params.value),
-    },
-    { field: 'volumesCount', headerName: 'Volumes', width: 80 },
+    { id: 'name', label: 'common.name', render: (row: StoragePool) => row.name },
+    { id: 'state', label: 'hypervisors.state', render: (row: StoragePool) => row.state },
+    { id: 'capacity', label: 'hypervisors.capacity', render: (row: StoragePool) => formatBytes(row.capacity) },
+    { id: 'allocation', label: 'hypervisors.used', render: (row: StoragePool) => formatBytes(row.allocation) },
+    { id: 'available', label: 'hypervisors.available', render: (row: StoragePool) => formatBytes(row.available) },
+    { id: 'volumesCount', label: 'hypervisors.volumes', render: (row: StoragePool) => row.volumesCount },
   ];
 
   const renderTabContent = () => {
     if (!isConnected) {
       return (
-        <CSDBox sx={{ p: 3, textAlign: 'center' }}>
-          <CSDTypography color="text.secondary" sx={{ mb: 2 }}>
-            Connect to the hypervisor to view resources
-          </CSDTypography>
-          <CSDButton variant="contained" color="primary" onClick={handleTestConnection} disabled={mutationLoading}>
-            {mutationLoading ? 'Testing...' : 'Test Connection'}
-          </CSDButton>
-        </CSDBox>
+        <CSDStack spacing={2} alignItems="center" sx={{ py: 4 }}>
+          <CSDTypography color="text.secondary">{t('hypervisors.connect_to_view')}</CSDTypography>
+          <CSDActionButton variant="contained" onClick={handleTestConnection} disabled={mutationLoading}>
+            {mutationLoading ? t('common.testing') : t('hypervisors.test_connection')}
+          </CSDActionButton>
+        </CSDStack>
+      );
+    }
+
+    if (resourcesLoading) {
+      return (
+        <CSDStack spacing={2} alignItems="center" sx={{ py: 4 }}>
+          <CSDCircularProgress />
+        </CSDStack>
       );
     }
 
     switch (tab) {
       case 0:
-        return domainsLoading ? (
-          <CSDBox sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CSDCircularProgress /></CSDBox>
-        ) : (
+        return (
           <CSDDataGrid
-            rows={domainsData?.domains || []}
+            id="hypervisor-domains-grid"
+            data={domainsData?.domains || []}
             columns={domainColumns}
-            getRowId={(row: { uuid: string }) => row.uuid}
-            autoHeight
-            disableRowSelectionOnClick
+            keyField="uuid"
           />
         );
       case 1:
-        return networksLoading ? (
-          <CSDBox sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CSDCircularProgress /></CSDBox>
-        ) : (
+        return (
           <CSDDataGrid
-            rows={networksData?.libvirtNetworks || []}
+            id="hypervisor-networks-grid"
+            data={networksData?.libvirtNetworks || []}
             columns={networkColumns}
-            getRowId={(row: { uuid: string }) => row.uuid}
-            autoHeight
-            disableRowSelectionOnClick
+            keyField="uuid"
           />
         );
       case 2:
-        return storageLoading ? (
-          <CSDBox sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CSDCircularProgress /></CSDBox>
-        ) : (
+        return (
           <CSDDataGrid
-            rows={storageData?.storagePools || []}
+            id="hypervisor-storage-grid"
+            data={storageData?.storagePools || []}
             columns={storageColumns}
-            getRowId={(row: { uuid: string }) => row.uuid}
-            autoHeight
-            disableRowSelectionOnClick
+            keyField="uuid"
           />
         );
       default:
@@ -348,74 +428,60 @@ export const HypervisorDetailPage: React.FC = () => {
   };
 
   return (
-    <CSDLayoutPage
+    <CSDDetailPage
       title={hypervisor.name}
       actions={
-        <CSDButton variant="outlined" color="primary" onClick={handleTestConnection} disabled={mutationLoading}>
-          {mutationLoading ? 'Testing...' : 'Test Connection'}
-        </CSDButton>
+        <CSDActionButton
+          variant="outlined"
+          startIcon={<CSDIcon name="sync" />}
+          onClick={handleTestConnection}
+          disabled={mutationLoading}
+        >
+          {mutationLoading ? t('common.testing') : t('hypervisors.test_connection')}
+        </CSDActionButton>
       }
     >
-      <CSDPaper sx={{ mb: 3 }}>
-        <CSDBox sx={{ p: 3 }}>
-          <CSDGrid container spacing={2}>
-            <CSDGrid item xs={12} md={6}>
-              <CSDTypography variant="subtitle2" color="text.secondary">Name</CSDTypography>
-              <CSDTypography>{hypervisor.name}</CSDTypography>
-            </CSDGrid>
-            <CSDGrid item xs={12} md={3}>
-              <CSDTypography variant="subtitle2" color="text.secondary">Mode</CSDTypography>
-              <CSDChip label={hypervisor.mode} color={modeColors[hypervisor.mode] || 'default'} size="small" variant="outlined" />
-            </CSDGrid>
-            <CSDGrid item xs={12} md={3}>
-              <CSDTypography variant="subtitle2" color="text.secondary">Status</CSDTypography>
-              <CSDChip label={hypervisor.status} color={statusColors[hypervisor.status] || 'default'} size="small" />
-            </CSDGrid>
-            {hypervisor.driver && (
-              <CSDGrid item xs={12} md={6}>
-                <CSDTypography variant="subtitle2" color="text.secondary">Driver</CSDTypography>
-                <CSDTypography>{hypervisor.driver}</CSDTypography>
-              </CSDGrid>
-            )}
-            <CSDGrid item xs={12} md={6}>
-              <CSDTypography variant="subtitle2" color="text.secondary">URI</CSDTypography>
-              <CSDTypography>{hypervisor.uri}</CSDTypography>
-            </CSDGrid>
-            <CSDGrid item xs={12} md={6}>
-              <CSDTypography variant="subtitle2" color="text.secondary">Version</CSDTypography>
-              <CSDTypography>{hypervisor.version || '-'}</CSDTypography>
-            </CSDGrid>
-            <CSDGrid item xs={12} md={6}>
-              <CSDTypography variant="subtitle2" color="text.secondary">Hostname</CSDTypography>
-              <CSDTypography>{hypervisor.hostname || '-'}</CSDTypography>
-            </CSDGrid>
+      <CSDStack spacing={3}>
+        <CSDPaper>
+          <CSDInfoGrid>
+            <CSDInfoItem label={t('hypervisors.name')} value={hypervisor.name} />
+            <CSDInfoItem
+              label={t('hypervisors.mode')}
+              value={<CSDChip label={hypervisor.mode} color={modeColors[hypervisor.mode] || 'default'} size="small" variant="outlined" />}
+            />
+            <CSDInfoItem
+              label={t('hypervisors.status')}
+              value={<CSDChip label={hypervisor.status} color={statusColors[hypervisor.status] || 'default'} size="small" />}
+            />
+            {hypervisor.driver && <CSDInfoItem label={t('hypervisors.driver')} value={hypervisor.driver} />}
+            <CSDInfoItem label={t('hypervisors.uri')} value={hypervisor.uri} />
+            <CSDInfoItem label={t('hypervisors.version')} value={hypervisor.version || '-'} />
+            <CSDInfoItem label={t('hypervisors.hostname')} value={hypervisor.hostname || '-'} />
             {hypervisor.statusMessage && (
-              <CSDGrid item xs={12}>
-                <CSDTypography variant="subtitle2" color="text.secondary">Status Message</CSDTypography>
-                <CSDTypography color={hypervisor.status === 'ERROR' ? 'error' : 'textPrimary'}>
-                  {hypervisor.statusMessage}
-                </CSDTypography>
-              </CSDGrid>
+              <CSDInfoItem
+                label={t('hypervisors.status_message')}
+                value={<CSDTypography color={hypervisor.status === 'ERROR' ? 'error' : 'textPrimary'}>{hypervisor.statusMessage}</CSDTypography>}
+                fullWidth
+              />
             )}
-            {hypervisor.description && (
-              <CSDGrid item xs={12}>
-                <CSDTypography variant="subtitle2" color="text.secondary">Description</CSDTypography>
-                <CSDTypography>{hypervisor.description}</CSDTypography>
-              </CSDGrid>
-            )}
-          </CSDGrid>
-        </CSDBox>
-      </CSDPaper>
+            {hypervisor.description && <CSDInfoItem label={t('hypervisors.description')} value={hypervisor.description} fullWidth />}
+            <CSDInfoItem label={t('common.created')} value={formatDate(hypervisor.createdAt, '-')} />
+            <CSDInfoItem label={t('common.updated')} value={formatDate(hypervisor.updatedAt, '-')} />
+          </CSDInfoGrid>
+        </CSDPaper>
 
-      <CSDPaper>
-        <CSDTabs value={tab} onChange={(_: unknown, v: number) => setTab(v)}>
-          <CSDTab label={`Virtual Machines${domainsData?.domainsCount ? ` (${domainsData.domainsCount})` : ''}`} />
-          <CSDTab label={`Networks${networksData?.libvirtNetworksCount ? ` (${networksData.libvirtNetworksCount})` : ''}`} />
-          <CSDTab label={`Storage Pools${storageData?.storagePoolsCount ? ` (${storageData.storagePoolsCount})` : ''}`} />
-        </CSDTabs>
-        <CSDBox sx={{ p: 2 }}>{renderTabContent()}</CSDBox>
-      </CSDPaper>
-    </CSDLayoutPage>
+        <CSDPaper>
+          <CSDTabs value={tab} onChange={(_: unknown, v: number) => setTab(v)}>
+            <CSDTab label={`${t('hypervisors.virtual_machines')}${domainsData?.domainsCount ? ` (${domainsData.domainsCount})` : ''}`} />
+            <CSDTab label={`${t('hypervisors.networks')}${networksData?.libvirtNetworksCount ? ` (${networksData.libvirtNetworksCount})` : ''}`} />
+            <CSDTab label={`${t('hypervisors.storage_pools')}${storageData?.storagePoolsCount ? ` (${storageData.storagePoolsCount})` : ''}`} />
+          </CSDTabs>
+          <CSDStack spacing={2} sx={{ p: 2 }}>
+            {renderTabContent()}
+          </CSDStack>
+        </CSDPaper>
+      </CSDStack>
+    </CSDDetailPage>
   );
 };
 

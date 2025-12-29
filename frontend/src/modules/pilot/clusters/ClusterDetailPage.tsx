@@ -1,20 +1,29 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  CSDLayoutPage,
-  CSDBox,
+  CSDDetailPage,
+  CSDStack,
   CSDTypography,
   CSDPaper,
-  CSDGrid,
   CSDChip,
   CSDTabs,
   CSDTab,
-  CSDButton,
+  CSDActionButton,
   CSDDataGrid,
   CSDCircularProgress,
   CSDAlert,
-  CSDDivider,
+  CSDIcon,
+  CSDInfoGrid,
+  CSDInfoItem,
 } from 'csd_core/UI';
-import { useBreadcrumb, useParams, useGraphQL, useSnackbar } from 'csd_core/Providers';
+import {
+  useBreadcrumb,
+  useParams,
+  useSnackbar,
+  useTranslation,
+  formatDate,
+} from 'csd_core/Providers';
+import { useGraphQL } from '../../../shared/hooks/useGraphQL';
+import { BREADCRUMBS } from '../../../shared/config/breadcrumbs';
 
 const CLUSTER_QUERY = `
   query Cluster($id: ID!) {
@@ -162,205 +171,246 @@ interface Cluster {
 
 export const ClusterDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const [tab, setTab] = React.useState(0);
+  const { request } = useGraphQL();
   const { showSuccess, showError } = useSnackbar();
-  const { execute, loading: mutationLoading } = useGraphQL();
+  const { t } = useTranslation();
+
+  const [tab, setTab] = useState(0);
+  const [cluster, setCluster] = useState<Cluster | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [mutationLoading, setMutationLoading] = useState(false);
+
+  // Resources data
+  const [namespacesData, setNamespacesData] = useState<{ namespaces: unknown[]; namespacesCount: number } | null>(null);
+  const [deploymentsData, setDeploymentsData] = useState<{ deployments: unknown[]; deploymentsCount: number } | null>(null);
+  const [podsData, setPodsData] = useState<{ pods: unknown[]; podsCount: number } | null>(null);
+  const [servicesData, setServicesData] = useState<{ k8sServices: unknown[]; k8sServicesCount: number } | null>(null);
+  const [resourcesLoading, setResourcesLoading] = useState(false);
 
   useBreadcrumb([
-    { label: 'Pilote', path: '/pilote' },
-    { label: 'Kubernetes', path: '/pilote/kubernetes' },
-    { label: 'Clusters', path: '/pilote/kubernetes/clusters' },
-    { label: 'Details' },
+    BREADCRUMBS.PILOTE,
+    BREADCRUMBS.KUBERNETES,
+    { labelKey: 'breadcrumb.clusters', path: '/pilote/kubernetes/clusters' },
+    { labelKey: 'common.view' },
   ]);
 
-  // Fetch cluster details
-  const { data: clusterData, loading: clusterLoading, error: clusterError, refetch: refetchCluster } = useGraphQL<{ cluster: Cluster }>(CLUSTER_QUERY, { id });
+  // Load cluster
+  const loadCluster = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await request<{ cluster: Cluster }>(CLUSTER_QUERY, { id });
+      setCluster(data.cluster);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('clusters.error_loading'));
+    } finally {
+      setLoading(false);
+    }
+  }, [id, request, t]);
 
-  // Fetch resources based on tab
-  const isConnected = clusterData?.cluster?.status === 'CONNECTED';
-  const { data: namespacesData, loading: namespacesLoading } = useGraphQL(NAMESPACES_QUERY, { clusterId: id }, { skip: tab !== 1 || !isConnected });
-  const { data: deploymentsData, loading: deploymentsLoading } = useGraphQL(DEPLOYMENTS_QUERY, { clusterId: id }, { skip: tab !== 2 || !isConnected });
-  const { data: podsData, loading: podsLoading } = useGraphQL(PODS_QUERY, { clusterId: id }, { skip: tab !== 3 || !isConnected });
-  const { data: servicesData, loading: servicesLoading } = useGraphQL(SERVICES_QUERY, { clusterId: id }, { skip: tab !== 4 || !isConnected });
+  // Load resources based on tab
+  const loadResources = useCallback(async () => {
+    if (!cluster || cluster.status !== 'CONNECTED') return;
+
+    setResourcesLoading(true);
+    try {
+      switch (tab) {
+        case 1: {
+          const data = await request<{ namespaces: unknown[]; namespacesCount: number }>(NAMESPACES_QUERY, { clusterId: id });
+          setNamespacesData(data);
+          break;
+        }
+        case 2: {
+          const data = await request<{ deployments: unknown[]; deploymentsCount: number }>(DEPLOYMENTS_QUERY, { clusterId: id });
+          setDeploymentsData(data);
+          break;
+        }
+        case 3: {
+          const data = await request<{ pods: unknown[]; podsCount: number }>(PODS_QUERY, { clusterId: id });
+          setPodsData(data);
+          break;
+        }
+        case 4: {
+          const data = await request<{ k8sServices: unknown[]; k8sServicesCount: number }>(SERVICES_QUERY, { clusterId: id });
+          setServicesData(data);
+          break;
+        }
+      }
+    } catch {
+      // Silently handle resource loading errors
+    } finally {
+      setResourcesLoading(false);
+    }
+  }, [cluster, tab, id, request]);
+
+  useEffect(() => {
+    loadCluster();
+  }, [loadCluster]);
+
+  useEffect(() => {
+    if (tab > 0) {
+      loadResources();
+    }
+  }, [tab, loadResources]);
 
   const handleTestConnection = async () => {
+    setMutationLoading(true);
     try {
-      await execute(TEST_CONNECTION, { id });
-      showSuccess('Connection test successful');
-      refetchCluster();
-    } catch (error) {
-      showError(`Connection test failed: ${error}`);
+      await request(TEST_CONNECTION, { id });
+      showSuccess(t('clusters.connection_test_success'));
+      await loadCluster();
+    } catch (err) {
+      showError(t('clusters.connection_test_failed', { error: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setMutationLoading(false);
     }
   };
 
-  if (clusterLoading) {
+  if (loading) {
     return (
-      <CSDLayoutPage title="Loading...">
-        <CSDBox sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+      <CSDDetailPage title={t('common.loading')} loading>
+        <CSDStack spacing={2} alignItems="center" justifyContent="center" sx={{ minHeight: 200 }}>
           <CSDCircularProgress />
-        </CSDBox>
-      </CSDLayoutPage>
+        </CSDStack>
+      </CSDDetailPage>
     );
   }
 
-  if (clusterError || !clusterData?.cluster) {
+  if (error || !cluster) {
     return (
-      <CSDLayoutPage title="Cluster Not Found">
-        <CSDAlert severity="error">
-          {clusterError?.message || 'Cluster not found'}
-        </CSDAlert>
-      </CSDLayoutPage>
+      <CSDDetailPage title={t('clusters.not_found')}>
+        <CSDAlert severity="error">{error || t('clusters.not_found')}</CSDAlert>
+      </CSDDetailPage>
     );
   }
 
-  const cluster = clusterData.cluster;
+  const isConnected = cluster.status === 'CONNECTED';
   const isDeployMode = cluster.mode === 'DEPLOY';
 
   const nodeColumns = [
-    { field: 'role', headerName: 'Role', width: 100 },
-    { field: 'hostname', headerName: 'Hostname', flex: 1 },
-    { field: 'ip', headerName: 'IP', width: 140 },
+    { id: 'role', label: 'clusters.node_role', render: (row: ClusterNode) => row.role },
+    { id: 'hostname', label: 'clusters.hostname', render: (row: ClusterNode) => row.hostname },
+    { id: 'ip', label: 'clusters.ip', render: (row: ClusterNode) => row.ip },
     {
-      field: 'status',
-      headerName: 'Status',
-      width: 120,
-      renderCell: (params: { value: string }) => (
-        <CSDChip
-          label={params.value}
-          color={nodeStatusColors[params.value] || 'default'}
-          size="small"
-        />
+      id: 'status',
+      label: 'clusters.status',
+      render: (row: ClusterNode) => (
+        <CSDChip label={row.status} color={nodeStatusColors[row.status] || 'default'} size="small" />
       ),
     },
-    { field: 'message', headerName: 'Message', flex: 1 },
+    { id: 'message', label: 'clusters.message', render: (row: ClusterNode) => row.message || '-' },
   ];
 
   const namespaceColumns = [
-    { field: 'name', headerName: 'Name', flex: 1 },
-    { field: 'status', headerName: 'Status', width: 120 },
+    { id: 'name', label: 'common.name', render: (row: Record<string, unknown>) => row.name as string },
+    { id: 'status', label: 'clusters.status', render: (row: Record<string, unknown>) => row.status as string },
   ];
 
   const deploymentColumns = [
-    { field: 'namespace', headerName: 'Namespace', width: 150 },
-    { field: 'name', headerName: 'Name', flex: 1 },
+    { id: 'namespace', label: 'clusters.namespace', render: (row: Record<string, unknown>) => row.namespace as string },
+    { id: 'name', label: 'common.name', render: (row: Record<string, unknown>) => row.name as string },
     {
-      field: 'replicas',
-      headerName: 'Replicas',
-      width: 120,
-      renderCell: (params: { row: { readyReplicas: number; replicas: number } }) => (
-        <CSDTypography>
-          {params.row.readyReplicas}/{params.row.replicas}
-        </CSDTypography>
-      ),
+      id: 'replicas',
+      label: 'clusters.replicas',
+      render: (row: Record<string, unknown>) => `${row.readyReplicas}/${row.replicas}`,
     },
     {
-      field: 'images',
-      headerName: 'Image',
-      flex: 1,
-      renderCell: (params: { value: string[] }) => params.value?.[0] || '-',
+      id: 'image',
+      label: 'clusters.image',
+      render: (row: Record<string, unknown>) => ((row.images as string[]) || [])[0] || '-',
     },
   ];
 
   const podColumns = [
-    { field: 'namespace', headerName: 'Namespace', width: 150 },
-    { field: 'name', headerName: 'Name', flex: 1 },
+    { id: 'namespace', label: 'clusters.namespace', render: (row: Record<string, unknown>) => row.namespace as string },
+    { id: 'name', label: 'common.name', render: (row: Record<string, unknown>) => row.name as string },
     {
-      field: 'status',
-      headerName: 'Status',
-      width: 120,
-      renderCell: (params: { value: string }) => {
-        const color = params.value === 'Running' ? 'success' : params.value === 'Pending' ? 'warning' : 'error';
-        return <CSDChip label={params.value} color={color} size="small" />;
+      id: 'status',
+      label: 'clusters.status',
+      render: (row: Record<string, unknown>) => {
+        const status = row.status as string;
+        const color = status === 'Running' ? 'success' : status === 'Pending' ? 'warning' : 'error';
+        return <CSDChip label={status} color={color} size="small" />;
       },
     },
-    { field: 'ready', headerName: 'Ready', width: 80 },
-    { field: 'restarts', headerName: 'Restarts', width: 80 },
-    { field: 'age', headerName: 'Age', width: 80 },
-    { field: 'node', headerName: 'Node', width: 150 },
+    { id: 'ready', label: 'clusters.ready', render: (row: Record<string, unknown>) => row.ready as string },
+    { id: 'restarts', label: 'clusters.restarts', render: (row: Record<string, unknown>) => row.restarts as number },
+    { id: 'age', label: 'clusters.age', render: (row: Record<string, unknown>) => row.age as string },
+    { id: 'node', label: 'clusters.node', render: (row: Record<string, unknown>) => row.node as string },
   ];
 
   const serviceColumns = [
-    { field: 'namespace', headerName: 'Namespace', width: 150 },
-    { field: 'name', headerName: 'Name', flex: 1 },
-    { field: 'type', headerName: 'Type', width: 120 },
-    { field: 'clusterIP', headerName: 'Cluster IP', width: 150 },
+    { id: 'namespace', label: 'clusters.namespace', render: (row: Record<string, unknown>) => row.namespace as string },
+    { id: 'name', label: 'common.name', render: (row: Record<string, unknown>) => row.name as string },
+    { id: 'type', label: 'clusters.type', render: (row: Record<string, unknown>) => row.type as string },
+    { id: 'clusterIP', label: 'clusters.cluster_ip', render: (row: Record<string, unknown>) => row.clusterIP as string },
     {
-      field: 'ports',
-      headerName: 'Ports',
-      flex: 1,
-      renderCell: (params: { value: Array<{ port: number; targetPort: string; protocol: string }> }) =>
-        params.value?.map((p) => `${p.port}/${p.protocol}`).join(', ') || '-',
+      id: 'ports',
+      label: 'clusters.ports',
+      render: (row: Record<string, unknown>) =>
+        ((row.ports as Array<{ port: number; protocol: string }>) || []).map((p) => `${p.port}/${p.protocol}`).join(', ') || '-',
     },
   ];
 
   const renderNodesTab = () => {
     if (!isDeployMode) {
       return (
-        <CSDBox sx={{ p: 3, textAlign: 'center' }}>
-          <CSDTypography color="text.secondary">
-            Node information is only available for deployed clusters.
-          </CSDTypography>
-        </CSDBox>
+        <CSDStack spacing={2} alignItems="center" sx={{ py: 4 }}>
+          <CSDTypography color="text.secondary">{t('clusters.nodes_deploy_only')}</CSDTypography>
+        </CSDStack>
       );
     }
 
     if (!cluster.nodes || cluster.nodes.length === 0) {
       return (
-        <CSDBox sx={{ p: 3, textAlign: 'center' }}>
-          <CSDTypography color="text.secondary">No nodes found.</CSDTypography>
-        </CSDBox>
+        <CSDStack spacing={2} alignItems="center" sx={{ py: 4 }}>
+          <CSDTypography color="text.secondary">{t('clusters.no_nodes')}</CSDTypography>
+        </CSDStack>
       );
     }
 
     return (
       <CSDDataGrid
-        rows={cluster.nodes}
+        id="cluster-nodes-grid"
+        data={cluster.nodes}
         columns={nodeColumns}
-        autoHeight
-        disableRowSelectionOnClick
+        keyField="id"
       />
     );
   };
 
   const renderResourcesTab = (
-    loading: boolean,
     data: unknown[] | undefined,
-    columns: { field: string; headerName: string; flex?: number; width?: number; renderCell?: (params: unknown) => React.ReactNode }[],
-    getRowId: (row: Record<string, unknown>) => string
+    columns: { id: string; label: string; render: (row: Record<string, unknown>) => React.ReactNode }[],
+    getKey: (row: Record<string, unknown>) => string
   ) => {
     if (!isConnected) {
       return (
-        <CSDBox sx={{ p: 3, textAlign: 'center' }}>
-          <CSDTypography color="text.secondary" sx={{ mb: 2 }}>
-            Connect to the cluster to view resources
-          </CSDTypography>
-          <CSDButton
-            variant="contained"
-            color="primary"
-            onClick={handleTestConnection}
-            disabled={mutationLoading}
-          >
-            {mutationLoading ? 'Testing...' : 'Test Connection'}
-          </CSDButton>
-        </CSDBox>
+        <CSDStack spacing={2} alignItems="center" sx={{ py: 4 }}>
+          <CSDTypography color="text.secondary">{t('clusters.connect_to_view')}</CSDTypography>
+          <CSDActionButton variant="contained" onClick={handleTestConnection} disabled={mutationLoading}>
+            {mutationLoading ? t('common.testing') : t('clusters.test_connection')}
+          </CSDActionButton>
+        </CSDStack>
       );
     }
 
-    if (loading) {
+    if (resourcesLoading) {
       return (
-        <CSDBox sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+        <CSDStack spacing={2} alignItems="center" sx={{ py: 4 }}>
           <CSDCircularProgress />
-        </CSDBox>
+        </CSDStack>
       );
     }
 
     return (
       <CSDDataGrid
-        rows={data || []}
+        id={`cluster-resources-grid-${tab}`}
+        data={(data || []) as Record<string, unknown>[]}
         columns={columns}
-        getRowId={getRowId}
-        autoHeight
-        disableRowSelectionOnClick
+        keyField="name"
+        getRowKey={getKey}
       />
     );
   };
@@ -370,161 +420,75 @@ export const ClusterDetailPage: React.FC = () => {
       case 0:
         return renderNodesTab();
       case 1:
-        return renderResourcesTab(
-          namespacesLoading,
-          namespacesData?.namespaces,
-          namespaceColumns,
-          (row) => row.name as string
-        );
+        return renderResourcesTab(namespacesData?.namespaces as Record<string, unknown>[], namespaceColumns, (row) => row.name as string);
       case 2:
-        return renderResourcesTab(
-          deploymentsLoading,
-          deploymentsData?.deployments,
-          deploymentColumns,
-          (row) => `${row.namespace}/${row.name}`
-        );
+        return renderResourcesTab(deploymentsData?.deployments as Record<string, unknown>[], deploymentColumns, (row) => `${row.namespace}/${row.name}`);
       case 3:
-        return renderResourcesTab(
-          podsLoading,
-          podsData?.pods,
-          podColumns,
-          (row) => `${row.namespace}/${row.name}`
-        );
+        return renderResourcesTab(podsData?.pods as Record<string, unknown>[], podColumns, (row) => `${row.namespace}/${row.name}`);
       case 4:
-        return renderResourcesTab(
-          servicesLoading,
-          servicesData?.k8sServices,
-          serviceColumns,
-          (row) => `${row.namespace}/${row.name}`
-        );
+        return renderResourcesTab(servicesData?.k8sServices as Record<string, unknown>[], serviceColumns, (row) => `${row.namespace}/${row.name}`);
       default:
         return null;
     }
   };
 
   return (
-    <CSDLayoutPage
+    <CSDDetailPage
       title={cluster.name}
       actions={
-        <CSDBox sx={{ display: 'flex', gap: 1 }}>
-          <CSDButton
-            variant="outlined"
-            color="primary"
-            onClick={handleTestConnection}
-            disabled={mutationLoading}
-          >
-            {mutationLoading ? 'Testing...' : 'Test Connection'}
-          </CSDButton>
-        </CSDBox>
+        <CSDActionButton
+          variant="outlined"
+          startIcon={<CSDIcon name="sync" />}
+          onClick={handleTestConnection}
+          disabled={mutationLoading}
+        >
+          {mutationLoading ? t('common.testing') : t('clusters.test_connection')}
+        </CSDActionButton>
       }
     >
-      <CSDPaper sx={{ mb: 3 }}>
-        <CSDBox sx={{ p: 3 }}>
-          <CSDGrid container spacing={2}>
-            <CSDGrid item xs={12} md={6}>
-              <CSDTypography variant="subtitle2" color="text.secondary">
-                Name
-              </CSDTypography>
-              <CSDTypography>{cluster.name}</CSDTypography>
-            </CSDGrid>
-            <CSDGrid item xs={12} md={3}>
-              <CSDTypography variant="subtitle2" color="text.secondary">
-                Mode
-              </CSDTypography>
-              <CSDChip
-                label={cluster.mode}
-                color={modeColors[cluster.mode] || 'default'}
-                size="small"
-                variant="outlined"
-              />
-            </CSDGrid>
-            <CSDGrid item xs={12} md={3}>
-              <CSDTypography variant="subtitle2" color="text.secondary">
-                Status
-              </CSDTypography>
-              <CSDChip
-                label={cluster.status}
-                color={statusColors[cluster.status] || 'default'}
-                size="small"
-              />
-            </CSDGrid>
-
-            {cluster.distribution && (
-              <CSDGrid item xs={12} md={6}>
-                <CSDTypography variant="subtitle2" color="text.secondary">
-                  Distribution
-                </CSDTypography>
-                <CSDTypography>{cluster.distribution}</CSDTypography>
-              </CSDGrid>
-            )}
-
-            {cluster.version && (
-              <CSDGrid item xs={12} md={6}>
-                <CSDTypography variant="subtitle2" color="text.secondary">
-                  Version
-                </CSDTypography>
-                <CSDTypography>{cluster.version}</CSDTypography>
-              </CSDGrid>
-            )}
-
-            {cluster.apiServerUrl && (
-              <CSDGrid item xs={12} md={6}>
-                <CSDTypography variant="subtitle2" color="text.secondary">
-                  API Server
-                </CSDTypography>
-                <CSDTypography>{cluster.apiServerUrl}</CSDTypography>
-              </CSDGrid>
-            )}
-
-            {cluster.artifactKey && (
-              <CSDGrid item xs={12} md={6}>
-                <CSDTypography variant="subtitle2" color="text.secondary">
-                  Kubeconfig Artifact
-                </CSDTypography>
-                <CSDTypography>{cluster.artifactKey}</CSDTypography>
-              </CSDGrid>
-            )}
-
+      <CSDStack spacing={3}>
+        <CSDPaper>
+          <CSDInfoGrid>
+            <CSDInfoItem label={t('clusters.name')} value={cluster.name} />
+            <CSDInfoItem
+              label={t('clusters.mode')}
+              value={<CSDChip label={cluster.mode} color={modeColors[cluster.mode] || 'default'} size="small" variant="outlined" />}
+            />
+            <CSDInfoItem
+              label={t('clusters.status')}
+              value={<CSDChip label={cluster.status} color={statusColors[cluster.status] || 'default'} size="small" />}
+            />
+            {cluster.distribution && <CSDInfoItem label={t('clusters.distribution')} value={cluster.distribution} />}
+            {cluster.version && <CSDInfoItem label={t('clusters.version')} value={cluster.version} />}
+            {cluster.apiServerUrl && <CSDInfoItem label={t('clusters.api_server')} value={cluster.apiServerUrl} />}
+            {cluster.artifactKey && <CSDInfoItem label={t('clusters.kubeconfig_artifact')} value={cluster.artifactKey} />}
             {cluster.statusMessage && (
-              <CSDGrid item xs={12}>
-                <CSDTypography variant="subtitle2" color="text.secondary">
-                  Status Message
-                </CSDTypography>
-                <CSDTypography color={cluster.status === 'ERROR' ? 'error' : 'textPrimary'}>
-                  {cluster.statusMessage}
-                </CSDTypography>
-              </CSDGrid>
+              <CSDInfoItem
+                label={t('clusters.status_message')}
+                value={<CSDTypography color={cluster.status === 'ERROR' ? 'error' : 'textPrimary'}>{cluster.statusMessage}</CSDTypography>}
+                fullWidth
+              />
             )}
+            {cluster.description && <CSDInfoItem label={t('clusters.description')} value={cluster.description} fullWidth />}
+            <CSDInfoItem label={t('common.created')} value={formatDate(cluster.createdAt, '-')} />
+            <CSDInfoItem label={t('common.updated')} value={formatDate(cluster.updatedAt, '-')} />
+          </CSDInfoGrid>
+        </CSDPaper>
 
-            {cluster.description && (
-              <CSDGrid item xs={12}>
-                <CSDTypography variant="subtitle2" color="text.secondary">
-                  Description
-                </CSDTypography>
-                <CSDTypography>{cluster.description}</CSDTypography>
-              </CSDGrid>
-            )}
-          </CSDGrid>
-        </CSDBox>
-      </CSDPaper>
-
-      <CSDPaper>
-        <CSDTabs value={tab} onChange={(_: unknown, v: number) => setTab(v)}>
-          <CSDTab
-            label={`Nodes${isDeployMode && cluster.nodes?.length ? ` (${cluster.nodes.length})` : ''}`}
-            disabled={!isDeployMode}
-          />
-          <CSDTab label={`Namespaces${namespacesData?.namespacesCount ? ` (${namespacesData.namespacesCount})` : ''}`} />
-          <CSDTab label={`Deployments${deploymentsData?.deploymentsCount ? ` (${deploymentsData.deploymentsCount})` : ''}`} />
-          <CSDTab label={`Pods${podsData?.podsCount ? ` (${podsData.podsCount})` : ''}`} />
-          <CSDTab label={`Services${servicesData?.k8sServicesCount ? ` (${servicesData.k8sServicesCount})` : ''}`} />
-        </CSDTabs>
-
-        <CSDBox sx={{ p: 2 }}>
-          {renderTabContent()}
-        </CSDBox>
-      </CSDPaper>
-    </CSDLayoutPage>
+        <CSDPaper>
+          <CSDTabs value={tab} onChange={(_: unknown, v: number) => setTab(v)}>
+            <CSDTab label={`${t('clusters.nodes')}${isDeployMode && cluster.nodes?.length ? ` (${cluster.nodes.length})` : ''}`} disabled={!isDeployMode} />
+            <CSDTab label={`${t('clusters.namespaces')}${namespacesData?.namespacesCount ? ` (${namespacesData.namespacesCount})` : ''}`} />
+            <CSDTab label={`${t('clusters.deployments')}${deploymentsData?.deploymentsCount ? ` (${deploymentsData.deploymentsCount})` : ''}`} />
+            <CSDTab label={`${t('clusters.pods')}${podsData?.podsCount ? ` (${podsData.podsCount})` : ''}`} />
+            <CSDTab label={`${t('clusters.services')}${servicesData?.k8sServicesCount ? ` (${servicesData.k8sServicesCount})` : ''}`} />
+          </CSDTabs>
+          <CSDStack spacing={2} sx={{ p: 2 }}>
+            {renderTabContent()}
+          </CSDStack>
+        </CSDPaper>
+      </CSDStack>
+    </CSDDetailPage>
   );
 };
 

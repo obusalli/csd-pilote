@@ -7,6 +7,7 @@ export interface ServiceConfig {
   slug: string;
   name: string;
   graphqlUrl: string;
+  coreGraphqlUrl?: string;
 }
 
 export interface ServiceAppInfo {

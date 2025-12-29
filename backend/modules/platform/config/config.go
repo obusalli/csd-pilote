@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	common "csd-pilote/backend/modules/common/config"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -140,26 +142,41 @@ func Load(configPath string) (*Config, error) {
 	// Merge common with backend-specific config
 	cfg := mergeConfig(rawCfg)
 
-	// Set defaults
+	// Set defaults from ConfigDefaults (single source of truth)
 	if cfg.Server.Host == "" {
-		cfg.Server.Host = "0.0.0.0"
+		cfg.Server.Host = common.DefaultBackendHost
 	}
 	if cfg.Server.Port == "" {
-		cfg.Server.Port = "9092"
+		cfg.Server.Port = common.DefaultBackendPort
+	}
+	if cfg.CSDCore.URL == "" {
+		cfg.CSDCore.URL = common.DefaultCSDCoreURL
 	}
 	if cfg.CSDCore.GraphQLEndpoint == "" {
-		cfg.CSDCore.GraphQLEndpoint = "/graphql"
+		cfg.CSDCore.GraphQLEndpoint = common.DefaultCSDCoreGraphQL
+	}
+	if cfg.JWT.Issuer == "" {
+		cfg.JWT.Issuer = common.DefaultJWTIssuer
 	}
 	if cfg.JWT.ExpiryHours == 0 {
-		cfg.JWT.ExpiryHours = 24
+		cfg.JWT.ExpiryHours = common.DefaultJWTExpiryHours
+	}
+	if cfg.Logging.Level == "" {
+		cfg.Logging.Level = common.DefaultLogLevel
+	}
+	if cfg.Frontend.URL == "" {
+		cfg.Frontend.URL = common.DefaultFrontendURL
+	}
+	if cfg.Frontend.RoutePath == "" {
+		cfg.Frontend.RoutePath = common.DefaultFrontendRoutePath
 	}
 
 	// Pagination defaults
 	if cfg.Pagination.ExactCountThreshold == 0 {
-		cfg.Pagination.ExactCountThreshold = 10000
+		cfg.Pagination.ExactCountThreshold = GetDefaultInt64("backend.pagination.exact-count-threshold", 10000)
 	}
 	if cfg.Pagination.EstimateCountThreshold == 0 {
-		cfg.Pagination.EstimateCountThreshold = 100000
+		cfg.Pagination.EstimateCountThreshold = GetDefaultInt64("backend.pagination.estimate-count-threshold", 100000)
 	}
 
 	globalConfig = &cfg

@@ -229,6 +229,7 @@ func AutoMigrateWithResult() (*MigrationResult, error) {
 	// Kubernetes Clusters
 	clusterModels := []interface{}{
 		&clusters.Cluster{},
+		&clusters.ClusterNode{},
 	}
 	group, err := migrateGroup(DB, "Kubernetes Clusters", clusterModels)
 	if err != nil {
@@ -302,11 +303,20 @@ func createIndexes(db *gorm.DB) (int, error) {
 		{"idx_clusters_name", SchemaName + ".clusters", "name"},
 		{"idx_clusters_status", SchemaName + ".clusters", "status"},
 		{"idx_clusters_tenant", SchemaName + ".clusters", "tenant_id"},
+		{"idx_clusters_mode", SchemaName + ".clusters", "mode"},
+		{"idx_clusters_distribution", SchemaName + ".clusters", "distribution"},
+
+		// Cluster Nodes
+		{"idx_cluster_nodes_cluster", SchemaName + ".cluster_nodes", "cluster_id"},
+		{"idx_cluster_nodes_agent", SchemaName + ".cluster_nodes", "agent_id"},
+		{"idx_cluster_nodes_role", SchemaName + ".cluster_nodes", "role"},
 
 		// Hypervisors
 		{"idx_hypervisors_name", SchemaName + ".hypervisors", "name"},
 		{"idx_hypervisors_status", SchemaName + ".hypervisors", "status"},
 		{"idx_hypervisors_tenant", SchemaName + ".hypervisors", "tenant_id"},
+		{"idx_hypervisors_mode", SchemaName + ".hypervisors", "mode"},
+		{"idx_hypervisors_driver", SchemaName + ".hypervisors", "driver"},
 
 		// Container Engines
 		{"idx_container_engines_name", SchemaName + ".container_engines", "name"},

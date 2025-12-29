@@ -47,6 +47,12 @@ func (r *Repository) List(tenantID uuid.UUID, filter *ClusterFilter, limit, offs
 		if filter.Status != nil {
 			query = query.Where("status = ?", *filter.Status)
 		}
+		if filter.Mode != nil {
+			query = query.Where("mode = ?", *filter.Mode)
+		}
+		if filter.Distribution != nil {
+			query = query.Where("distribution = ?", *filter.Distribution)
+		}
 	}
 
 	// Get count
@@ -54,8 +60,8 @@ func (r *Repository) List(tenantID uuid.UUID, filter *ClusterFilter, limit, offs
 		return nil, 0, err
 	}
 
-	// Get results
-	if err := query.Order("created_at DESC").Limit(limit).Offset(offset).Find(&clusters).Error; err != nil {
+	// Get results with nodes preloaded
+	if err := query.Preload("Nodes").Order("created_at DESC").Limit(limit).Offset(offset).Find(&clusters).Error; err != nil {
 		return nil, 0, err
 	}
 
@@ -81,4 +87,53 @@ func (r *Repository) UpdateStatus(tenantID, id uuid.UUID, status ClusterStatus, 
 			"status_message":  message,
 			"last_checked_at": gorm.Expr("NOW()"),
 		}).Error
+}
+
+// CreateNodes creates multiple cluster nodes
+func (r *Repository) CreateNodes(nodes []ClusterNode) error {
+	if len(nodes) == 0 {
+		return nil
+	}
+	return r.db.Create(&nodes).Error
+}
+
+// GetNodes retrieves all nodes for a cluster
+func (r *Repository) GetNodes(clusterID uuid.UUID) ([]ClusterNode, error) {
+	var nodes []ClusterNode
+	err := r.db.Where("cluster_id = ?", clusterID).Order("role, created_at").Find(&nodes).Error
+	return nodes, err
+}
+
+// UpdateNodeStatus updates the status of a cluster node
+func (r *Repository) UpdateNodeStatus(nodeID uuid.UUID, status, message string) error {
+	return r.db.Model(&ClusterNode{}).
+		Where("id = ?", nodeID).
+		Updates(map[string]interface{}{
+			"status":  status,
+			"message": message,
+		}).Error
+}
+
+// DeleteNodes deletes all nodes for a cluster
+func (r *Repository) DeleteNodes(clusterID uuid.UUID) error {
+	return r.db.Where("cluster_id = ?", clusterID).Delete(&ClusterNode{}).Error
+}
+
+// UpdateClusterArtifact updates the artifact key and agent ID for a deployed cluster
+func (r *Repository) UpdateClusterArtifact(clusterID uuid.UUID, artifactKey string) error {
+	return r.db.Model(&Cluster{}).
+		Where("id = ?", clusterID).
+		Updates(map[string]interface{}{
+			"artifact_key": artifactKey,
+		}).Error
+}
+
+// GetByIDWithNodes retrieves a cluster with its nodes
+func (r *Repository) GetByIDWithNodes(tenantID, id uuid.UUID) (*Cluster, error) {
+	var cluster Cluster
+	err := r.db.Preload("Nodes").Where("tenant_id = ? AND id = ?", tenantID, id).First(&cluster).Error
+	if err != nil {
+		return nil, err
+	}
+	return &cluster, nil
 }

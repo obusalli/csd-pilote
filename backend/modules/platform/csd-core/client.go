@@ -270,6 +270,424 @@ type PlaybookExecution struct {
 	StartedAt string    `json:"startedAt"`
 }
 
+// TaskExecution represents a task execution
+type TaskExecution struct {
+	ID          uuid.UUID   `json:"id"`
+	PlaybookID  uuid.UUID   `json:"playbookId"`
+	AgentID     uuid.UUID   `json:"agentId"`
+	TaskIndex   int         `json:"taskIndex"`
+	Status      string      `json:"status"` // PENDING, RUNNING, SUCCESS, FAILED
+	Output      interface{} `json:"output"`
+	Error       string      `json:"error"`
+	StartedAt   *string     `json:"startedAt"`
+	CompletedAt *string     `json:"completedAt"`
+}
+
+// TaskInput defines a task to execute
+type TaskInput struct {
+	Type   string                 `json:"type"`
+	Name   string                 `json:"name"`
+	Config map[string]interface{} `json:"config"`
+}
+
+// ExecuteTaskInput represents input for executing a single task
+type ExecuteTaskInput struct {
+	AgentID     uuid.UUID              `json:"agentId"`
+	Task        TaskInput              `json:"task"`
+	ArtifactKey string                 `json:"artifactKey,omitempty"` // For kubeconfig, SSH keys, etc.
+	Vars        map[string]interface{} `json:"vars,omitempty"`
+	Wait        bool                   `json:"wait"` // Wait for completion
+	Timeout     int                    `json:"timeout,omitempty"` // Timeout in seconds
+}
+
+// ExecuteTask executes a single task on an agent via csd-core
+func (c *Client) ExecuteTask(ctx context.Context, token string, input *ExecuteTaskInput) (*TaskExecution, error) {
+	// Create a one-task playbook and execute it
+	mutation := `
+		mutation ExecuteTask($input: ExecuteTaskInput!) {
+			executeTask(input: $input) {
+				id
+				playbookId
+				agentId
+				taskIndex
+				status
+				output
+				error
+				startedAt
+				completedAt
+			}
+		}
+	`
+
+	vars := map[string]interface{}{
+		"input": map[string]interface{}{
+			"agentId": input.AgentID.String(),
+			"task": map[string]interface{}{
+				"type":   input.Task.Type,
+				"name":   input.Task.Name,
+				"config": input.Task.Config,
+			},
+			"artifactKey": input.ArtifactKey,
+			"vars":        input.Vars,
+			"wait":        input.Wait,
+			"timeout":     input.Timeout,
+		},
+	}
+
+	resp, err := c.ExecuteWithName(ctx, token, "ExecuteTask", mutation, vars)
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		ExecuteTask *TaskExecution `json:"executeTask"`
+	}
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse task execution: %w", err)
+	}
+
+	return result.ExecuteTask, nil
+}
+
+// GetTaskExecution gets the status of a task execution
+func (c *Client) GetTaskExecution(ctx context.Context, token string, executionID uuid.UUID) (*TaskExecution, error) {
+	query := `
+		query GetTaskExecution($id: ID!) {
+			taskExecution(id: $id) {
+				id
+				playbookId
+				agentId
+				taskIndex
+				status
+				output
+				error
+				startedAt
+				completedAt
+			}
+		}
+	`
+
+	resp, err := c.ExecuteWithName(ctx, token, "GetTaskExecution", query, map[string]interface{}{
+		"id": executionID.String(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		TaskExecution *TaskExecution `json:"taskExecution"`
+	}
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse task execution: %w", err)
+	}
+
+	return result.TaskExecution, nil
+}
+
+// ValidateAgentCapability checks if an agent supports a specific capability
+func (c *Client) ValidateAgentCapability(ctx context.Context, token string, agentID uuid.UUID, capability string) error {
+	agent, err := c.GetAgent(ctx, token, agentID)
+	if err != nil {
+		return fmt.Errorf("failed to get agent: %w", err)
+	}
+
+	if agent == nil {
+		return fmt.Errorf("agent not found: %s", agentID)
+	}
+
+	if agent.Status != "ONLINE" {
+		return fmt.Errorf("agent is not online (status: %s)", agent.Status)
+	}
+
+	if !agent.HasCapability(capability) {
+		return fmt.Errorf("agent %s does not support %s capability (available: %v)", agent.Name, capability, agent.Capabilities)
+	}
+
+	return nil
+}
+
+// ExecuteKubernetesTask executes a Kubernetes-specific task
+func (c *Client) ExecuteKubernetesTask(ctx context.Context, token string, agentID uuid.UUID, kubeconfigKey string, action string, params map[string]interface{}) (*TaskExecution, error) {
+	// Validate agent supports Kubernetes
+	if err := c.ValidateAgentCapability(ctx, token, agentID, "kubernetes"); err != nil {
+		return nil, err
+	}
+
+	config := map[string]interface{}{
+		"action":        action,
+		"kubeconfigKey": kubeconfigKey,
+	}
+	// Merge params into config
+	for k, v := range params {
+		config[k] = v
+	}
+
+	return c.ExecuteTask(ctx, token, &ExecuteTaskInput{
+		AgentID: agentID,
+		Task: TaskInput{
+			Type:   "kubernetes",
+			Name:   fmt.Sprintf("k8s-%s", action),
+			Config: config,
+		},
+		ArtifactKey: kubeconfigKey,
+		Wait:        true,
+		Timeout:     30,
+	})
+}
+
+// ExecuteLibvirtTask executes a Libvirt-specific task
+func (c *Client) ExecuteLibvirtTask(ctx context.Context, token string, agentID uuid.UUID, uri string, sshKeyArtifact string, action string, params map[string]interface{}) (*TaskExecution, error) {
+	// Validate agent supports Libvirt
+	if err := c.ValidateAgentCapability(ctx, token, agentID, "libvirt"); err != nil {
+		return nil, err
+	}
+
+	config := map[string]interface{}{
+		"action": action,
+		"uri":    uri,
+	}
+	// Merge params into config
+	for k, v := range params {
+		config[k] = v
+	}
+
+	return c.ExecuteTask(ctx, token, &ExecuteTaskInput{
+		AgentID: agentID,
+		Task: TaskInput{
+			Type:   "libvirt",
+			Name:   fmt.Sprintf("libvirt-%s", action),
+			Config: config,
+		},
+		ArtifactKey: sshKeyArtifact,
+		Wait:        true,
+		Timeout:     30,
+	})
+}
+
+// DeployKubernetesResult contains the result of a Kubernetes deployment
+type DeployKubernetesResult struct {
+	Success    bool   `json:"success"`
+	JoinToken  string `json:"joinToken,omitempty"`
+	JoinURL    string `json:"joinUrl,omitempty"`
+	Kubeconfig string `json:"kubeconfig,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+// DeployKubernetesTask deploys Kubernetes on an agent
+func (c *Client) DeployKubernetesTask(ctx context.Context, token string, agentID uuid.UUID, distribution string, action string, params map[string]interface{}) (*TaskExecution, error) {
+	// Validate agent supports this distribution deployment
+	capability := "kubernetes-deploy-" + distribution
+	if err := c.ValidateAgentCapability(ctx, token, agentID, capability); err != nil {
+		return nil, err
+	}
+
+	config := map[string]interface{}{
+		"distribution": distribution,
+		"action":       action,
+	}
+	for k, v := range params {
+		config[k] = v
+	}
+
+	return c.ExecuteTask(ctx, token, &ExecuteTaskInput{
+		AgentID: agentID,
+		Task: TaskInput{
+			Type:   "kubernetes-deploy",
+			Name:   fmt.Sprintf("k8s-deploy-%s-%s", distribution, action),
+			Config: config,
+		},
+		Wait:    true,
+		Timeout: 300, // 5 minutes for deployment tasks
+	})
+}
+
+// DeployLibvirtTask deploys Libvirt on an agent
+func (c *Client) DeployLibvirtTask(ctx context.Context, token string, agentID uuid.UUID, driver string, action string, params map[string]interface{}) (*TaskExecution, error) {
+	// Validate agent supports this driver deployment
+	capability := "libvirt-deploy-" + driver
+	if err := c.ValidateAgentCapability(ctx, token, agentID, capability); err != nil {
+		return nil, err
+	}
+
+	config := map[string]interface{}{
+		"driver": driver,
+		"action": action,
+	}
+	for k, v := range params {
+		config[k] = v
+	}
+
+	return c.ExecuteTask(ctx, token, &ExecuteTaskInput{
+		AgentID: agentID,
+		Task: TaskInput{
+			Type:   "libvirt-deploy",
+			Name:   fmt.Sprintf("libvirt-deploy-%s-%s", driver, action),
+			Config: config,
+		},
+		Wait:    true,
+		Timeout: 300, // 5 minutes for deployment tasks
+	})
+}
+
+// CreateArtifact creates a new artifact in csd-core
+func (c *Client) CreateArtifact(ctx context.Context, token string, tenantID uuid.UUID, key, artifactType, content string) error {
+	mutation := `
+		mutation CreateArtifact($input: CreateArtifactInput!) {
+			createArtifact(input: $input) {
+				id
+				key
+			}
+		}
+	`
+
+	_, err := c.ExecuteWithName(ctx, token, "CreateArtifact", mutation, map[string]interface{}{
+		"input": map[string]interface{}{
+			"key":      key,
+			"type":     artifactType,
+			"content":  content,
+			"tenantId": tenantID.String(),
+		},
+	})
+	return err
+}
+
+// Agent represents a csd-core agent
+type Agent struct {
+	ID           uuid.UUID `json:"id"`
+	Name         string    `json:"name"`
+	Status       string    `json:"status"`
+	Hostname     string    `json:"hostname"`
+	LastSeen     string    `json:"lastSeen"`
+	Capabilities []string  `json:"capabilities"` // Supported task types: kubernetes, libvirt, shell, etc.
+}
+
+// GetAgent gets agent info from csd-core
+func (c *Client) GetAgent(ctx context.Context, token string, agentID uuid.UUID) (*Agent, error) {
+	query := `
+		query GetAgent($id: ID!) {
+			agent(id: $id) {
+				id
+				name
+				status
+				hostname
+				lastSeen
+				capabilities
+			}
+		}
+	`
+
+	resp, err := c.ExecuteWithName(ctx, token, "GetAgent", query, map[string]interface{}{
+		"id": agentID.String(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		Agent *Agent `json:"agent"`
+	}
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse agent: %w", err)
+	}
+
+	return result.Agent, nil
+}
+
+// HasCapability checks if an agent has a specific capability
+func (a *Agent) HasCapability(capability string) bool {
+	for _, cap := range a.Capabilities {
+		if cap == capability {
+			return true
+		}
+	}
+	return false
+}
+
+// HasCapabilityPrefix checks if an agent has any capability starting with prefix
+func (a *Agent) HasCapabilityPrefix(prefix string) bool {
+	for _, cap := range a.Capabilities {
+		if len(cap) >= len(prefix) && cap[:len(prefix)] == prefix {
+			return true
+		}
+	}
+	return false
+}
+
+// ListAgentsByCapability lists agents that support a specific capability
+func (c *Client) ListAgentsByCapability(ctx context.Context, token string, capability string) ([]Agent, error) {
+	agents, err := c.ListAgents(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+
+	filtered := make([]Agent, 0)
+	for _, agent := range agents {
+		if agent.HasCapability(capability) {
+			filtered = append(filtered, agent)
+		}
+	}
+
+	return filtered, nil
+}
+
+// ListAgentsByCapabilityPrefix lists agents that have any capability starting with prefix
+func (c *Client) ListAgentsByCapabilityPrefix(ctx context.Context, token string, prefix string) ([]Agent, error) {
+	agents, err := c.ListAgents(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+
+	filtered := make([]Agent, 0)
+	for _, agent := range agents {
+		if agent.HasCapabilityPrefix(prefix) {
+			filtered = append(filtered, agent)
+		}
+	}
+
+	return filtered, nil
+}
+
+// GetAgentCapabilitiesByPrefix returns capabilities matching a prefix for an agent
+func (a *Agent) GetCapabilitiesByPrefix(prefix string) []string {
+	result := make([]string, 0)
+	for _, cap := range a.Capabilities {
+		if len(cap) >= len(prefix) && cap[:len(prefix)] == prefix {
+			result = append(result, cap)
+		}
+	}
+	return result
+}
+
+// ListAgents lists available agents
+func (c *Client) ListAgents(ctx context.Context, token string) ([]Agent, error) {
+	query := `
+		query ListAgents {
+			agents {
+				id
+				name
+				status
+				hostname
+				lastSeen
+				capabilities
+			}
+		}
+	`
+
+	resp, err := c.ExecuteWithName(ctx, token, "ListAgents", query, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		Agents []Agent `json:"agents"`
+	}
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse agents: %w", err)
+	}
+
+	return result.Agents, nil
+}
+
 // ServiceRegistration represents the service registration info
 type ServiceRegistration struct {
 	Name        string `json:"name"`

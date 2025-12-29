@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/middleware"
 )
@@ -15,6 +16,21 @@ func init() {
 	service := NewService()
 
 	// Queries
+	graphql.RegisterQuery("libvirtAgents", "List agents that support Libvirt management", "csd-pilote.hypervisors.read",
+		func(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}) {
+			handleListLibvirtAgents(ctx, w, variables, service)
+		})
+
+	graphql.RegisterQuery("libvirtDeployAgents", "List agents where Libvirt can be deployed", "csd-pilote.hypervisors.create",
+		func(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}) {
+			handleListLibvirtDeployAgents(ctx, w, variables, service)
+		})
+
+	graphql.RegisterQuery("libvirtDrivers", "List supported Libvirt drivers", "csd-pilote.hypervisors.read",
+		func(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}) {
+			handleListLibvirtDrivers(ctx, w, variables, service)
+		})
+
 	graphql.RegisterQuery("hypervisors", "List all hypervisors", "csd-pilote.hypervisors.read",
 		func(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}) {
 			handleListHypervisors(ctx, w, variables, service)
@@ -23,21 +39,6 @@ func init() {
 	graphql.RegisterQuery("hypervisor", "Get a hypervisor by ID", "csd-pilote.hypervisors.read",
 		func(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}) {
 			handleGetHypervisor(ctx, w, variables, service)
-		})
-
-	graphql.RegisterQuery("domains", "List domains (VMs) on a hypervisor", "csd-pilote.domains.read",
-		func(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}) {
-			handleListDomains(ctx, w, variables, service)
-		})
-
-	graphql.RegisterQuery("networks", "List networks on a hypervisor", "csd-pilote.networks.read",
-		func(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}) {
-			handleListNetworks(ctx, w, variables, service)
-		})
-
-	graphql.RegisterQuery("storagePools", "List storage pools on a hypervisor", "csd-pilote.storage.read",
-		func(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}) {
-			handleListStoragePools(ctx, w, variables, service)
 		})
 
 	// Mutations
@@ -61,9 +62,9 @@ func init() {
 			handleTestHypervisorConnection(ctx, w, variables, service)
 		})
 
-	graphql.RegisterMutation("domainAction", "Perform action on a domain (start/stop/etc)", "csd-pilote.domains.power",
+	graphql.RegisterMutation("deployHypervisor", "Deploy Libvirt on an agent", "csd-pilote.hypervisors.create",
 		func(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}) {
-			handleDomainAction(ctx, w, variables, service)
+			handleDeployHypervisor(ctx, w, variables, service)
 		})
 }
 
@@ -163,6 +164,9 @@ func handleCreateHypervisor(ctx context.Context, w http.ResponseWriter, variable
 	if description, ok := inputRaw["description"].(string); ok {
 		input.Description = description
 	}
+	if agentId, ok := inputRaw["agentId"].(string); ok {
+		input.AgentID = agentId
+	}
 	if uri, ok := inputRaw["uri"].(string); ok {
 		input.URI = uri
 	}
@@ -172,6 +176,10 @@ func handleCreateHypervisor(ctx context.Context, w http.ResponseWriter, variable
 
 	if input.Name == "" {
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+		return
+	}
+	if input.AgentID == "" {
+		json.NewEncoder(w).Encode(graphql.NewErrorResponse("agentId is required"))
 		return
 	}
 	if input.URI == "" {
@@ -221,6 +229,9 @@ func handleUpdateHypervisor(ctx context.Context, w http.ResponseWriter, variable
 	}
 	if description, ok := inputRaw["description"].(string); ok {
 		input.Description = description
+	}
+	if agentId, ok := inputRaw["agentId"].(string); ok {
+		input.AgentID = agentId
 	}
 	if uri, ok := inputRaw["uri"].(string); ok {
 		input.URI = uri
@@ -303,153 +314,151 @@ func handleTestHypervisorConnection(ctx context.Context, w http.ResponseWriter, 
 	}))
 }
 
-func handleListDomains(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
-	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
-		return
-	}
-
+func handleListLibvirtAgents(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
-	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
-		return
-	}
-
-	agentIDStr, _ := variables["agentId"].(string)
-	agentID, _ := uuid.Parse(agentIDStr)
-
-	domains, err := service.ListDomains(ctx, token, tenantID, hypervisorID, agentID)
+	client := csdcore.GetClient()
+	agents, err := client.ListAgentsByCapability(ctx, token, "libvirt")
 	if err != nil {
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
 		return
 	}
 
 	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
-		"domains": domains,
+		"libvirtAgents": agents,
 	}))
 }
 
-func handleListNetworks(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
-	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
-		return
-	}
-
+func handleListLibvirtDeployAgents(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
+	// Filter by driver if provided
+	driver, _ := variables["driver"].(string)
+
+	client := csdcore.GetClient()
+	var agents []csdcore.Agent
+	var err error
+
+	if driver != "" {
+		// Filter by specific driver capability (e.g., "libvirt-deploy-qemu")
+		capability := "libvirt-deploy-" + driver
+		agents, err = client.ListAgentsByCapability(ctx, token, capability)
+	} else {
+		// Get all agents that can deploy any Libvirt driver
+		agents, err = client.ListAgentsByCapabilityPrefix(ctx, token, "libvirt-deploy-")
 	}
 
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
-	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
-		return
-	}
-
-	agentIDStr, _ := variables["agentId"].(string)
-	agentID, _ := uuid.Parse(agentIDStr)
-
-	networks, err := service.ListNetworks(ctx, token, tenantID, hypervisorID, agentID)
 	if err != nil {
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
 		return
 	}
 
+	// Enrich agents with their supported drivers
+	type AgentWithDrivers struct {
+		csdcore.Agent
+		SupportedDrivers []string `json:"supportedDrivers"`
+	}
+
+	enrichedAgents := make([]AgentWithDrivers, 0, len(agents))
+	for _, agent := range agents {
+		driverCaps := agent.GetCapabilitiesByPrefix("libvirt-deploy-")
+		drivers := make([]string, 0, len(driverCaps))
+		for _, d := range driverCaps {
+			if len(d) > len("libvirt-deploy-") {
+				drivers = append(drivers, d[len("libvirt-deploy-"):])
+			}
+		}
+		enrichedAgents = append(enrichedAgents, AgentWithDrivers{
+			Agent:            agent,
+			SupportedDrivers: drivers,
+		})
+	}
+
 	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
-		"networks": networks,
+		"libvirtDeployAgents": enrichedAgents,
 	}))
 }
 
-func handleListStoragePools(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
-	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
-		return
-	}
-
-	token, _ := middleware.GetTokenFromContext(ctx)
-
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
-	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
-		return
-	}
-
-	agentIDStr, _ := variables["agentId"].(string)
-	agentID, _ := uuid.Parse(agentIDStr)
-
-	pools, err := service.ListStoragePools(ctx, token, tenantID, hypervisorID, agentID)
-	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
-		return
+func handleListLibvirtDrivers(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
+	drivers := []map[string]interface{}{
+		{
+			"id":          "qemu",
+			"name":        "QEMU/KVM",
+			"description": "Full virtualization with KVM acceleration",
+			"capability":  "libvirt-deploy-qemu",
+		},
+		{
+			"id":          "xen",
+			"name":        "Xen",
+			"description": "Xen hypervisor for paravirtualization",
+			"capability":  "libvirt-deploy-xen",
+		},
+		{
+			"id":          "lxc",
+			"name":        "LXC",
+			"description": "Linux Containers - OS-level virtualization",
+			"capability":  "libvirt-deploy-lxc",
+		},
 	}
 
 	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
-		"storagePools": pools,
+		"libvirtDrivers": drivers,
 	}))
 }
 
-func handleDomainAction(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
+func handleDeployHypervisor(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
 		return
 	}
 
-	token, _ := middleware.GetTokenFromContext(ctx)
-
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
+	user, ok := middleware.GetUserFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
+		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
 		return
 	}
 
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	inputRaw, ok := variables["input"].(map[string]interface{})
+	if !ok {
+		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
+		return
+	}
+
+	input := &DeployHypervisorInput{}
+	if name, ok := inputRaw["name"].(string); ok {
+		input.Name = name
+	}
+	if description, ok := inputRaw["description"].(string); ok {
+		input.Description = description
+	}
+	if agentId, ok := inputRaw["agentId"].(string); ok {
+		input.AgentID = agentId
+	}
+	if driver, ok := inputRaw["driver"].(string); ok {
+		input.Driver = LibvirtDriver(driver)
+	}
+
+	// Validation
+	if input.Name == "" {
+		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+		return
+	}
+	if input.AgentID == "" {
+		json.NewEncoder(w).Encode(graphql.NewErrorResponse("agentId is required"))
+		return
+	}
+	if input.Driver == "" {
+		input.Driver = LibvirtDriverQEMU // Default to QEMU
+	}
+
+	hypervisor, err := service.Deploy(ctx, tenantID, user.UserID, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
-		return
-	}
-
-	domainName, ok := variables["domainName"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("domainName is required"))
-		return
-	}
-
-	action, ok := variables["action"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("action is required"))
-		return
-	}
-
-	agentIDStr, _ := variables["agentId"].(string)
-	agentID, _ := uuid.Parse(agentIDStr)
-
-	if err := service.DomainAction(ctx, token, tenantID, hypervisorID, agentID, domainName, action); err != nil {
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
 		return
 	}
 
 	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
-		"domainAction": true,
+		"deployHypervisor": hypervisor,
 	}))
 }

@@ -6,14 +6,32 @@ import (
 	"github.com/google/uuid"
 )
 
-// HypervisorStatus represents the status of a Libvirt hypervisor connection
+// HypervisorStatus represents the status of a Libvirt hypervisor
 type HypervisorStatus string
 
 const (
+	HypervisorStatusPending      HypervisorStatus = "PENDING"
+	HypervisorStatusDeploying    HypervisorStatus = "DEPLOYING"
 	HypervisorStatusConnected    HypervisorStatus = "CONNECTED"
 	HypervisorStatusDisconnected HypervisorStatus = "DISCONNECTED"
 	HypervisorStatusError        HypervisorStatus = "ERROR"
-	HypervisorStatusPending      HypervisorStatus = "PENDING"
+)
+
+// HypervisorMode represents how the hypervisor was added
+type HypervisorMode string
+
+const (
+	HypervisorModeConnect HypervisorMode = "CONNECT" // Connect to existing hypervisor
+	HypervisorModeDeploy  HypervisorMode = "DEPLOY"  // Deploy libvirt on agent
+)
+
+// LibvirtDriver represents the virtualization driver
+type LibvirtDriver string
+
+const (
+	LibvirtDriverQEMU LibvirtDriver = "QEMU" // QEMU/KVM
+	LibvirtDriverXen  LibvirtDriver = "XEN"  // Xen hypervisor
+	LibvirtDriverLXC  LibvirtDriver = "LXC"  // Linux Containers
 )
 
 // Hypervisor represents a Libvirt hypervisor configuration
@@ -22,8 +40,11 @@ type Hypervisor struct {
 	TenantID      uuid.UUID        `json:"tenantId" gorm:"type:uuid;not null;index"`
 	Name          string           `json:"name" gorm:"not null"`
 	Description   string           `json:"description"`
-	URI           string           `json:"uri" gorm:"not null"`                  // e.g., qemu+ssh://user@host/system
-	ArtifactKey   string           `json:"artifactKey"`                          // Reference to SSH key artifact in csd-core (optional)
+	Mode          HypervisorMode   `json:"mode" gorm:"default:'CONNECT'"`       // CONNECT or DEPLOY
+	Driver        LibvirtDriver    `json:"driver" gorm:"default:'QEMU'"`        // QEMU, XEN, LXC
+	AgentID       uuid.UUID        `json:"agentId" gorm:"type:uuid;not null"`   // csd-core agent
+	URI           string           `json:"uri"`                                  // e.g., qemu+ssh://user@host/system (for CONNECT)
+	ArtifactKey   string           `json:"artifactKey"`                          // Reference to SSH key artifact (optional)
 	Status        HypervisorStatus `json:"status" gorm:"default:'PENDING'"`
 	StatusMessage string           `json:"statusMessage"`
 	// Cached info from hypervisor
@@ -44,18 +65,29 @@ func (Hypervisor) TableName() string {
 	return "hypervisors"
 }
 
-// HypervisorInput represents input for creating/updating a hypervisor
+// HypervisorInput represents input for connecting to an existing hypervisor
 type HypervisorInput struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	AgentID     string `json:"agentId"`
 	URI         string `json:"uri"`
 	ArtifactKey string `json:"artifactKey"`
+}
+
+// DeployHypervisorInput represents input for deploying libvirt on an agent
+type DeployHypervisorInput struct {
+	Name        string        `json:"name"`
+	Description string        `json:"description"`
+	AgentID     string        `json:"agentId"` // Agent where to deploy libvirt
+	Driver      LibvirtDriver `json:"driver"`  // QEMU, XEN, LXC
 }
 
 // HypervisorFilter represents filter options for listing hypervisors
 type HypervisorFilter struct {
 	Search *string           `json:"search"`
 	Status *HypervisorStatus `json:"status"`
+	Mode   *HypervisorMode   `json:"mode"`
+	Driver *LibvirtDriver    `json:"driver"`
 }
 
 // Domain represents a Libvirt domain (VM)

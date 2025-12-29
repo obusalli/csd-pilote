@@ -15,6 +15,17 @@ import (
 	_ "csd-pilote/backend/modules/pilot/clusters"
 	_ "csd-pilote/backend/modules/pilot/containers"
 	_ "csd-pilote/backend/modules/pilot/hypervisors"
+
+	// Kubernetes resources
+	_ "csd-pilote/backend/modules/pilot/kubernetes/deployments"
+	_ "csd-pilote/backend/modules/pilot/kubernetes/namespaces"
+	_ "csd-pilote/backend/modules/pilot/kubernetes/pods"
+	_ "csd-pilote/backend/modules/pilot/kubernetes/services"
+
+	// Libvirt resources
+	_ "csd-pilote/backend/modules/pilot/libvirt/domains"
+	_ "csd-pilote/backend/modules/pilot/libvirt/networks"
+	_ "csd-pilote/backend/modules/pilot/libvirt/storage"
 )
 
 var Version = "1.0.0"

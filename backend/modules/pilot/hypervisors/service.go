@@ -23,12 +23,19 @@ func NewService() *Service {
 	}
 }
 
-// Create creates a new hypervisor
+// Create creates a new hypervisor (CONNECT mode - connect to existing hypervisor)
 func (s *Service) Create(ctx context.Context, tenantID, userID uuid.UUID, input *HypervisorInput) (*Hypervisor, error) {
+	agentID, err := uuid.Parse(input.AgentID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid agentId: %w", err)
+	}
+
 	hypervisor := &Hypervisor{
 		TenantID:    tenantID,
 		Name:        input.Name,
 		Description: input.Description,
+		Mode:        HypervisorModeConnect,
+		AgentID:     agentID,
 		URI:         input.URI,
 		ArtifactKey: input.ArtifactKey,
 		Status:      HypervisorStatusPending,
@@ -71,6 +78,14 @@ func (s *Service) Update(ctx context.Context, tenantID, id uuid.UUID, input *Hyp
 	if input.Description != "" {
 		hypervisor.Description = input.Description
 	}
+	if input.AgentID != "" {
+		agentID, err := uuid.Parse(input.AgentID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid agentId: %w", err)
+		}
+		hypervisor.AgentID = agentID
+		hypervisor.Status = HypervisorStatusPending // Reset status when agent changes
+	}
 	if input.URI != "" {
 		hypervisor.URI = input.URI
 		hypervisor.Status = HypervisorStatusPending // Reset status when config changes
@@ -98,52 +113,109 @@ func (s *Service) TestConnection(ctx context.Context, token string, tenantID, hy
 		return err
 	}
 
-	// This would execute a libvirt playbook with node_info action
-	// For now, we just update the status
-	s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusConnected, "Connection successful")
-
-	_ = hypervisor
-	return nil
-}
-
-// ListDomains lists all domains (VMs) on a hypervisor
-func (s *Service) ListDomains(ctx context.Context, token string, tenantID, hypervisorID uuid.UUID, agentID uuid.UUID) ([]Domain, error) {
-	// This would execute a libvirt playbook with vm_list action via csd-core agent
-	// The playbook would use the hypervisor's URI and optional artifactKey for auth
-	return []Domain{}, nil
-}
-
-// DomainAction performs an action on a domain (start, stop, etc.)
-func (s *Service) DomainAction(ctx context.Context, token string, tenantID, hypervisorID uuid.UUID, agentID uuid.UUID, domainName string, action string) error {
-	// This would execute a libvirt playbook with vm_start/vm_stop/etc. action
-	return nil
-}
-
-// ListNetworks lists all networks on a hypervisor
-func (s *Service) ListNetworks(ctx context.Context, token string, tenantID, hypervisorID uuid.UUID, agentID uuid.UUID) ([]Network, error) {
-	// This would execute a libvirt playbook with network_list action
-	return []Network{}, nil
-}
-
-// ListStoragePools lists all storage pools on a hypervisor
-func (s *Service) ListStoragePools(ctx context.Context, token string, tenantID, hypervisorID uuid.UUID, agentID uuid.UUID) ([]StoragePool, error) {
-	// This would execute a libvirt playbook with pool_list action
-	return []StoragePool{}, nil
-}
-
-// ListStorageVolumes lists all volumes in a storage pool
-func (s *Service) ListStorageVolumes(ctx context.Context, token string, tenantID, hypervisorID uuid.UUID, agentID uuid.UUID, poolName string) ([]StorageVolume, error) {
-	// This would execute a libvirt playbook with volume_list action
-	return []StorageVolume{}, nil
-}
-
-// ExecuteLibvirtAction executes a Libvirt action via playbook
-func (s *Service) ExecuteLibvirtAction(ctx context.Context, token string, hypervisorID uuid.UUID, action string, args map[string]interface{}) (map[string]interface{}, error) {
-	// This would create and execute a libvirt playbook via csd-core
-	result := map[string]interface{}{
-		"action":       action,
-		"hypervisorId": hypervisorID.String(),
-		"status":       "executed",
+	// Execute a libvirt playbook with node_info action to test connection
+	_, err = s.client.ExecuteLibvirtTask(ctx, token, hypervisor.AgentID, hypervisor.URI, hypervisor.ArtifactKey, "node-info", nil)
+	if err != nil {
+		s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusDisconnected, err.Error())
+		return err
 	}
-	return result, nil
+
+	s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusConnected, "Connection successful")
+	return nil
+}
+
+// Deploy deploys Libvirt on an agent
+func (s *Service) Deploy(ctx context.Context, tenantID, userID uuid.UUID, input *DeployHypervisorInput) (*Hypervisor, error) {
+	token, _ := ctx.Value("token").(string)
+
+	agentID, err := uuid.Parse(input.AgentID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid agentId: %w", err)
+	}
+
+	// Validate agent can deploy this driver
+	capability := "libvirt-deploy-" + string(input.Driver)
+	if err := s.client.ValidateAgentCapability(ctx, token, agentID, capability); err != nil {
+		return nil, fmt.Errorf("agent cannot deploy %s: %w", input.Driver, err)
+	}
+
+	// Create the hypervisor record
+	hypervisor := &Hypervisor{
+		TenantID:    tenantID,
+		Name:        input.Name,
+		Description: input.Description,
+		Mode:        HypervisorModeDeploy,
+		Driver:      input.Driver,
+		AgentID:     agentID,
+		URI:         "qemu:///system", // Local connection after deployment
+		Status:      HypervisorStatusDeploying,
+		CreatedBy:   userID,
+	}
+
+	if err := s.repo.Create(hypervisor); err != nil {
+		return nil, fmt.Errorf("failed to create hypervisor: %w", err)
+	}
+
+	// Start async deployment (in background)
+	go s.runDeployment(hypervisor.ID, tenantID, input)
+
+	return hypervisor, nil
+}
+
+// runDeployment executes the libvirt deployment in background
+func (s *Service) runDeployment(hypervisorID, tenantID uuid.UUID, input *DeployHypervisorInput) {
+	ctx := context.Background()
+	driver := string(input.Driver)
+
+	// Background tasks use internal auth
+	token := ""
+
+	agentID, err := uuid.Parse(input.AgentID)
+	if err != nil {
+		s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusError, "Invalid agent ID: "+err.Error())
+		return
+	}
+
+	// Step 1: Install libvirt packages and configure driver
+	params := map[string]interface{}{
+		"driver": driver,
+	}
+
+	execution, err := s.client.DeployLibvirtTask(ctx, token, agentID, driver, "install", params)
+	if err != nil {
+		s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusError, "Failed to deploy libvirt: "+err.Error())
+		return
+	}
+
+	if execution.Status != "SUCCESS" {
+		s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusError, "Libvirt deployment failed: "+execution.Error)
+		return
+	}
+
+	// Step 2: Start libvirtd service
+	execution, err = s.client.DeployLibvirtTask(ctx, token, agentID, driver, "start", nil)
+	if err != nil {
+		s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusError, "Failed to start libvirtd: "+err.Error())
+		return
+	}
+
+	if execution.Status != "SUCCESS" {
+		s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusError, "Failed to start libvirtd: "+execution.Error)
+		return
+	}
+
+	// Step 3: Verify connection works
+	execution, err = s.client.DeployLibvirtTask(ctx, token, agentID, driver, "verify", nil)
+	if err != nil {
+		s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusError, "Failed to verify libvirt: "+err.Error())
+		return
+	}
+
+	if execution.Status != "SUCCESS" {
+		s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusError, "Libvirt verification failed: "+execution.Error)
+		return
+	}
+
+	// Step 4: Update hypervisor status to connected
+	s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusConnected, "Libvirt deployed successfully")
 }

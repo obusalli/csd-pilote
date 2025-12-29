@@ -1,0 +1,12 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="csd-piloted" type="GoApplicationRunConfiguration" factoryName="Go Application" activateToolWindowBeforeRun="false">
+    <module name="csd-pilote" />
+    <working_directory value="$PROJECT_DIR$/backend" />
+    <parameters value="--config csd-pilote.yaml" />
+    <kind value="FILE" />
+    <package value="csd-pilote/backend" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$/backend/csd-piloted.go" />
+    <method v="2" />
+  </configuration>
+</component>

@@ -14,7 +14,6 @@ cli/csd-pilotectl
 backend/csd-piloted
 
 # IDE
-.idea/
 .vscode/
 *.swp
 *.swo

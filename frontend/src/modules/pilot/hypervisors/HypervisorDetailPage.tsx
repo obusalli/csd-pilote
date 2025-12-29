@@ -21,8 +21,11 @@ const HYPERVISOR_QUERY = `
       id
       name
       description
+      mode
+      driver
       uri
       status
+      statusMessage
       version
       hostname
       artifactKey
@@ -94,22 +97,31 @@ const SHUTDOWN_DOMAIN = `
   }
 `;
 
-const statusColors: Record<string, 'success' | 'error' | 'warning' | 'default'> = {
+const statusColors: Record<string, 'success' | 'error' | 'warning' | 'default' | 'info'> = {
   CONNECTED: 'success',
   DISCONNECTED: 'error',
   ERROR: 'error',
   PENDING: 'warning',
+  DEPLOYING: 'info',
   RUNNING: 'success',
   SHUTOFF: 'default',
   PAUSED: 'warning',
+};
+
+const modeColors: Record<string, 'primary' | 'secondary'> = {
+  CONNECT: 'primary',
+  DEPLOY: 'secondary',
 };
 
 interface Hypervisor {
   id: string;
   name: string;
   description: string;
+  mode: string;
+  driver: string;
   uri: string;
   status: string;
+  statusMessage: string;
   version: string;
   hostname: string;
   artifactKey: string;
@@ -351,10 +363,20 @@ export const HypervisorDetailPage: React.FC = () => {
               <CSDTypography variant="subtitle2" color="text.secondary">Name</CSDTypography>
               <CSDTypography>{hypervisor.name}</CSDTypography>
             </CSDGrid>
-            <CSDGrid item xs={12} md={6}>
+            <CSDGrid item xs={12} md={3}>
+              <CSDTypography variant="subtitle2" color="text.secondary">Mode</CSDTypography>
+              <CSDChip label={hypervisor.mode} color={modeColors[hypervisor.mode] || 'default'} size="small" variant="outlined" />
+            </CSDGrid>
+            <CSDGrid item xs={12} md={3}>
               <CSDTypography variant="subtitle2" color="text.secondary">Status</CSDTypography>
               <CSDChip label={hypervisor.status} color={statusColors[hypervisor.status] || 'default'} size="small" />
             </CSDGrid>
+            {hypervisor.driver && (
+              <CSDGrid item xs={12} md={6}>
+                <CSDTypography variant="subtitle2" color="text.secondary">Driver</CSDTypography>
+                <CSDTypography>{hypervisor.driver}</CSDTypography>
+              </CSDGrid>
+            )}
             <CSDGrid item xs={12} md={6}>
               <CSDTypography variant="subtitle2" color="text.secondary">URI</CSDTypography>
               <CSDTypography>{hypervisor.uri}</CSDTypography>
@@ -367,6 +389,14 @@ export const HypervisorDetailPage: React.FC = () => {
               <CSDTypography variant="subtitle2" color="text.secondary">Hostname</CSDTypography>
               <CSDTypography>{hypervisor.hostname || '-'}</CSDTypography>
             </CSDGrid>
+            {hypervisor.statusMessage && (
+              <CSDGrid item xs={12}>
+                <CSDTypography variant="subtitle2" color="text.secondary">Status Message</CSDTypography>
+                <CSDTypography color={hypervisor.status === 'ERROR' ? 'error' : 'textPrimary'}>
+                  {hypervisor.statusMessage}
+                </CSDTypography>
+              </CSDGrid>
+            )}
             {hypervisor.description && (
               <CSDGrid item xs={12}>
                 <CSDTypography variant="subtitle2" color="text.secondary">Description</CSDTypography>

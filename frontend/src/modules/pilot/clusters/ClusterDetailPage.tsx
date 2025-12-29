@@ -12,8 +12,7 @@ import {
   CSDDataGrid,
   CSDCircularProgress,
   CSDAlert,
-  CSDIconButton,
-  CSDTooltip,
+  CSDDivider,
 } from 'csd_core/UI';
 import { useBreadcrumb, useParams, useGraphQL, useSnackbar } from 'csd_core/Providers';
 
@@ -23,12 +22,25 @@ const CLUSTER_QUERY = `
       id
       name
       description
+      mode
+      distribution
+      version
       status
+      statusMessage
       apiServerUrl
       artifactKey
       lastCheckedAt
       createdAt
       updatedAt
+      nodes {
+        id
+        agentId
+        role
+        hostname
+        ip
+        status
+        message
+      }
     }
   }
 `;
@@ -101,23 +113,51 @@ const SERVICES_QUERY = `
   }
 `;
 
-const statusColors: Record<string, 'success' | 'error' | 'warning' | 'default'> = {
+const statusColors: Record<string, 'success' | 'error' | 'warning' | 'default' | 'info'> = {
   CONNECTED: 'success',
   DISCONNECTED: 'error',
   ERROR: 'error',
   PENDING: 'warning',
+  DEPLOYING: 'info',
 };
+
+const nodeStatusColors: Record<string, 'success' | 'error' | 'warning' | 'default' | 'info'> = {
+  READY: 'success',
+  ERROR: 'error',
+  PENDING: 'warning',
+  DEPLOYING: 'info',
+};
+
+const modeColors: Record<string, 'primary' | 'secondary'> = {
+  CONNECT: 'primary',
+  DEPLOY: 'secondary',
+};
+
+interface ClusterNode {
+  id: string;
+  agentId: string;
+  role: string;
+  hostname: string;
+  ip: string;
+  status: string;
+  message: string;
+}
 
 interface Cluster {
   id: string;
   name: string;
   description: string;
+  mode: string;
+  distribution: string;
+  version: string;
   status: string;
+  statusMessage: string;
   apiServerUrl: string;
   artifactKey: string;
   lastCheckedAt: string;
   createdAt: string;
   updatedAt: string;
+  nodes: ClusterNode[];
 }
 
 export const ClusterDetailPage: React.FC = () => {
@@ -137,10 +177,11 @@ export const ClusterDetailPage: React.FC = () => {
   const { data: clusterData, loading: clusterLoading, error: clusterError, refetch: refetchCluster } = useGraphQL<{ cluster: Cluster }>(CLUSTER_QUERY, { id });
 
   // Fetch resources based on tab
-  const { data: namespacesData, loading: namespacesLoading } = useGraphQL(NAMESPACES_QUERY, { clusterId: id }, { skip: tab !== 0 || clusterData?.cluster?.status !== 'CONNECTED' });
-  const { data: deploymentsData, loading: deploymentsLoading } = useGraphQL(DEPLOYMENTS_QUERY, { clusterId: id }, { skip: tab !== 1 || clusterData?.cluster?.status !== 'CONNECTED' });
-  const { data: podsData, loading: podsLoading } = useGraphQL(PODS_QUERY, { clusterId: id }, { skip: tab !== 2 || clusterData?.cluster?.status !== 'CONNECTED' });
-  const { data: servicesData, loading: servicesLoading } = useGraphQL(SERVICES_QUERY, { clusterId: id }, { skip: tab !== 3 || clusterData?.cluster?.status !== 'CONNECTED' });
+  const isConnected = clusterData?.cluster?.status === 'CONNECTED';
+  const { data: namespacesData, loading: namespacesLoading } = useGraphQL(NAMESPACES_QUERY, { clusterId: id }, { skip: tab !== 1 || !isConnected });
+  const { data: deploymentsData, loading: deploymentsLoading } = useGraphQL(DEPLOYMENTS_QUERY, { clusterId: id }, { skip: tab !== 2 || !isConnected });
+  const { data: podsData, loading: podsLoading } = useGraphQL(PODS_QUERY, { clusterId: id }, { skip: tab !== 3 || !isConnected });
+  const { data: servicesData, loading: servicesLoading } = useGraphQL(SERVICES_QUERY, { clusterId: id }, { skip: tab !== 4 || !isConnected });
 
   const handleTestConnection = async () => {
     try {
@@ -173,7 +214,26 @@ export const ClusterDetailPage: React.FC = () => {
   }
 
   const cluster = clusterData.cluster;
-  const isConnected = cluster.status === 'CONNECTED';
+  const isDeployMode = cluster.mode === 'DEPLOY';
+
+  const nodeColumns = [
+    { field: 'role', headerName: 'Role', width: 100 },
+    { field: 'hostname', headerName: 'Hostname', flex: 1 },
+    { field: 'ip', headerName: 'IP', width: 140 },
+    {
+      field: 'status',
+      headerName: 'Status',
+      width: 120,
+      renderCell: (params: { value: string }) => (
+        <CSDChip
+          label={params.value}
+          color={nodeStatusColors[params.value] || 'default'}
+          size="small"
+        />
+      ),
+    },
+    { field: 'message', headerName: 'Message', flex: 1 },
+  ];
 
   const namespaceColumns = [
     { field: 'name', headerName: 'Name', flex: 1 },
@@ -233,7 +293,41 @@ export const ClusterDetailPage: React.FC = () => {
     },
   ];
 
-  const renderTabContent = () => {
+  const renderNodesTab = () => {
+    if (!isDeployMode) {
+      return (
+        <CSDBox sx={{ p: 3, textAlign: 'center' }}>
+          <CSDTypography color="text.secondary">
+            Node information is only available for deployed clusters.
+          </CSDTypography>
+        </CSDBox>
+      );
+    }
+
+    if (!cluster.nodes || cluster.nodes.length === 0) {
+      return (
+        <CSDBox sx={{ p: 3, textAlign: 'center' }}>
+          <CSDTypography color="text.secondary">No nodes found.</CSDTypography>
+        </CSDBox>
+      );
+    }
+
+    return (
+      <CSDDataGrid
+        rows={cluster.nodes}
+        columns={nodeColumns}
+        autoHeight
+        disableRowSelectionOnClick
+      />
+    );
+  };
+
+  const renderResourcesTab = (
+    loading: boolean,
+    data: unknown[] | undefined,
+    columns: { field: string; headerName: string; flex?: number; width?: number; renderCell?: (params: unknown) => React.ReactNode }[],
+    getRowId: (row: Record<string, unknown>) => string
+  ) => {
     if (!isConnected) {
       return (
         <CSDBox sx={{ p: 3, textAlign: 'center' }}>
@@ -252,62 +346,56 @@ export const ClusterDetailPage: React.FC = () => {
       );
     }
 
+    if (loading) {
+      return (
+        <CSDBox sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+          <CSDCircularProgress />
+        </CSDBox>
+      );
+    }
+
+    return (
+      <CSDDataGrid
+        rows={data || []}
+        columns={columns}
+        getRowId={getRowId}
+        autoHeight
+        disableRowSelectionOnClick
+      />
+    );
+  };
+
+  const renderTabContent = () => {
     switch (tab) {
       case 0:
-        return namespacesLoading ? (
-          <CSDBox sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-            <CSDCircularProgress />
-          </CSDBox>
-        ) : (
-          <CSDDataGrid
-            rows={namespacesData?.namespaces || []}
-            columns={namespaceColumns}
-            getRowId={(row: { name: string }) => row.name}
-            autoHeight
-            disableRowSelectionOnClick
-          />
-        );
+        return renderNodesTab();
       case 1:
-        return deploymentsLoading ? (
-          <CSDBox sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-            <CSDCircularProgress />
-          </CSDBox>
-        ) : (
-          <CSDDataGrid
-            rows={deploymentsData?.deployments || []}
-            columns={deploymentColumns}
-            getRowId={(row: { namespace: string; name: string }) => `${row.namespace}/${row.name}`}
-            autoHeight
-            disableRowSelectionOnClick
-          />
+        return renderResourcesTab(
+          namespacesLoading,
+          namespacesData?.namespaces,
+          namespaceColumns,
+          (row) => row.name as string
         );
       case 2:
-        return podsLoading ? (
-          <CSDBox sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-            <CSDCircularProgress />
-          </CSDBox>
-        ) : (
-          <CSDDataGrid
-            rows={podsData?.pods || []}
-            columns={podColumns}
-            getRowId={(row: { namespace: string; name: string }) => `${row.namespace}/${row.name}`}
-            autoHeight
-            disableRowSelectionOnClick
-          />
+        return renderResourcesTab(
+          deploymentsLoading,
+          deploymentsData?.deployments,
+          deploymentColumns,
+          (row) => `${row.namespace}/${row.name}`
         );
       case 3:
-        return servicesLoading ? (
-          <CSDBox sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-            <CSDCircularProgress />
-          </CSDBox>
-        ) : (
-          <CSDDataGrid
-            rows={servicesData?.k8sServices || []}
-            columns={serviceColumns}
-            getRowId={(row: { namespace: string; name: string }) => `${row.namespace}/${row.name}`}
-            autoHeight
-            disableRowSelectionOnClick
-          />
+        return renderResourcesTab(
+          podsLoading,
+          podsData?.pods,
+          podColumns,
+          (row) => `${row.namespace}/${row.name}`
+        );
+      case 4:
+        return renderResourcesTab(
+          servicesLoading,
+          servicesData?.k8sServices,
+          serviceColumns,
+          (row) => `${row.namespace}/${row.name}`
         );
       default:
         return null;
@@ -339,7 +427,18 @@ export const ClusterDetailPage: React.FC = () => {
               </CSDTypography>
               <CSDTypography>{cluster.name}</CSDTypography>
             </CSDGrid>
-            <CSDGrid item xs={12} md={6}>
+            <CSDGrid item xs={12} md={3}>
+              <CSDTypography variant="subtitle2" color="text.secondary">
+                Mode
+              </CSDTypography>
+              <CSDChip
+                label={cluster.mode}
+                color={modeColors[cluster.mode] || 'default'}
+                size="small"
+                variant="outlined"
+              />
+            </CSDGrid>
+            <CSDGrid item xs={12} md={3}>
               <CSDTypography variant="subtitle2" color="text.secondary">
                 Status
               </CSDTypography>
@@ -349,18 +448,54 @@ export const ClusterDetailPage: React.FC = () => {
                 size="small"
               />
             </CSDGrid>
-            <CSDGrid item xs={12} md={6}>
-              <CSDTypography variant="subtitle2" color="text.secondary">
-                API Server
-              </CSDTypography>
-              <CSDTypography>{cluster.apiServerUrl || '-'}</CSDTypography>
-            </CSDGrid>
-            <CSDGrid item xs={12} md={6}>
-              <CSDTypography variant="subtitle2" color="text.secondary">
-                Artifact Key
-              </CSDTypography>
-              <CSDTypography>{cluster.artifactKey}</CSDTypography>
-            </CSDGrid>
+
+            {cluster.distribution && (
+              <CSDGrid item xs={12} md={6}>
+                <CSDTypography variant="subtitle2" color="text.secondary">
+                  Distribution
+                </CSDTypography>
+                <CSDTypography>{cluster.distribution}</CSDTypography>
+              </CSDGrid>
+            )}
+
+            {cluster.version && (
+              <CSDGrid item xs={12} md={6}>
+                <CSDTypography variant="subtitle2" color="text.secondary">
+                  Version
+                </CSDTypography>
+                <CSDTypography>{cluster.version}</CSDTypography>
+              </CSDGrid>
+            )}
+
+            {cluster.apiServerUrl && (
+              <CSDGrid item xs={12} md={6}>
+                <CSDTypography variant="subtitle2" color="text.secondary">
+                  API Server
+                </CSDTypography>
+                <CSDTypography>{cluster.apiServerUrl}</CSDTypography>
+              </CSDGrid>
+            )}
+
+            {cluster.artifactKey && (
+              <CSDGrid item xs={12} md={6}>
+                <CSDTypography variant="subtitle2" color="text.secondary">
+                  Kubeconfig Artifact
+                </CSDTypography>
+                <CSDTypography>{cluster.artifactKey}</CSDTypography>
+              </CSDGrid>
+            )}
+
+            {cluster.statusMessage && (
+              <CSDGrid item xs={12}>
+                <CSDTypography variant="subtitle2" color="text.secondary">
+                  Status Message
+                </CSDTypography>
+                <CSDTypography color={cluster.status === 'ERROR' ? 'error' : 'textPrimary'}>
+                  {cluster.statusMessage}
+                </CSDTypography>
+              </CSDGrid>
+            )}
+
             {cluster.description && (
               <CSDGrid item xs={12}>
                 <CSDTypography variant="subtitle2" color="text.secondary">
@@ -375,6 +510,10 @@ export const ClusterDetailPage: React.FC = () => {
 
       <CSDPaper>
         <CSDTabs value={tab} onChange={(_: unknown, v: number) => setTab(v)}>
+          <CSDTab
+            label={`Nodes${isDeployMode && cluster.nodes?.length ? ` (${cluster.nodes.length})` : ''}`}
+            disabled={!isDeployMode}
+          />
           <CSDTab label={`Namespaces${namespacesData?.namespacesCount ? ` (${namespacesData.namespacesCount})` : ''}`} />
           <CSDTab label={`Deployments${deploymentsData?.deploymentsCount ? ` (${deploymentsData.deploymentsCount})` : ''}`} />
           <CSDTab label={`Pods${podsData?.podsCount ? ` (${podsData.podsCount})` : ''}`} />

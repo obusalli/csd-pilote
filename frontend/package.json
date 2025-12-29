@@ -1,0 +1,39 @@
+{
+  "name": "csd-pilote-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "npm run dev",
+    "dev": "concurrently \"npm run build:watch\" \"npm run serve\"",
+    "build": "vite build",
+    "build:watch": "vite build --watch",
+    "serve": "vite preview",
+    "test": "vitest",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "graphql": "^16.8.1",
+    "js-yaml": "^4.1.1"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^6.0.0",
+    "@apollo/client": "^3.0.0",
+    "@mui/material": "^7.0.0",
+    "@emotion/react": "^11.0.0",
+    "@emotion/styled": "^11.0.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "@originjs/vite-plugin-federation": "^1.4.1",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^24.6.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.11"
+  }
+}

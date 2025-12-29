@@ -1,0 +1,39 @@
+# CSD-Pilote Frontend Configuration
+
+# Service registration (used by csd-corectl service register)
+service:
+  name: "CSD Pilote"
+  slug: "csd-pilote"
+  description: "Infrastructure management module for Kubernetes, Libvirt, and container engines"
+  version: "0.1.0"
+  type: "application"
+  icon: "settings_system_daydream"
+
+# Shared configuration
+common:
+  app:
+    name: "CSD Pilote"
+    version: "0.1.0"
+  graphql:
+    core_url: "http://127.0.0.1:9090/core/api/latest/query"
+    pilote_url: "http://127.0.0.1:9093/pilote/api/latest/query"
+
+# Frontend-specific configuration
+frontend:
+  enabled: true
+  url: "http://127.0.0.1:4043"
+  remote-entry-path: "/assets/remoteEntry.js"
+  route-path: "/pilote"
+  exposed-modules:
+    "./Routes": "./src/Routes.tsx"
+    "./Translations": "./src/translations/generated/index.ts"
+    "./AppInfo": "./src/appInfo.ts"
+  dev:
+    enabled: true
+    port: 4043
+    host: "127.0.0.1"
+
+# Backend configuration
+backend:
+  enabled: true
+  graphql-url: "http://127.0.0.1:9093/pilote/api/latest/query"

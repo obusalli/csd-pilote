@@ -1,0 +1,331 @@
+[
+  {
+    "key": "menu.csd-pilote.dashboard",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-dashboard",
+      "name": "Dashboard",
+      "name_translations": {
+        "en": "Dashboard",
+        "fr": "Tableau de bord",
+        "de": "Dashboard",
+        "es": "Panel",
+        "it": "Dashboard"
+      },
+      "icon": "dashboard",
+      "path": "/pilote/dashboard",
+      "sort_order": 0,
+      "fixed": true
+    }
+  },
+  {
+    "key": "menu.csd-pilote.kubernetes",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-kubernetes",
+      "name": "Kubernetes",
+      "name_translations": {
+        "en": "Kubernetes",
+        "fr": "Kubernetes",
+        "de": "Kubernetes",
+        "es": "Kubernetes",
+        "it": "Kubernetes"
+      },
+      "icon": "kubernetes",
+      "required_permission": "csd-pilote.clusters.read",
+      "sort_order": 100
+    }
+  },
+  {
+    "key": "menu.csd-pilote.clusters",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-kubernetes-clusters",
+      "name": "Clusters",
+      "name_translations": {
+        "en": "Clusters",
+        "fr": "Clusters",
+        "de": "Cluster",
+        "es": "Clústeres",
+        "it": "Cluster"
+      },
+      "icon": "cluster",
+      "path": "/pilote/kubernetes/clusters",
+      "parent_key": "menu.csd-pilote.kubernetes",
+      "required_permission": "csd-pilote.clusters.read",
+      "sort_order": 101
+    }
+  },
+  {
+    "key": "menu.csd-pilote.namespaces",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-kubernetes-namespaces",
+      "name": "Namespaces",
+      "name_translations": {
+        "en": "Namespaces",
+        "fr": "Espaces de noms",
+        "de": "Namespaces",
+        "es": "Espacios de nombres",
+        "it": "Namespace"
+      },
+      "icon": "folder",
+      "path": "/pilote/kubernetes/namespaces",
+      "parent_key": "menu.csd-pilote.kubernetes",
+      "required_permission": "csd-pilote.namespaces.read",
+      "sort_order": 102
+    }
+  },
+  {
+    "key": "menu.csd-pilote.deployments",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-kubernetes-deployments",
+      "name": "Deployments",
+      "name_translations": {
+        "en": "Deployments",
+        "fr": "Déploiements",
+        "de": "Deployments",
+        "es": "Despliegues",
+        "it": "Deployment"
+      },
+      "icon": "rocket",
+      "path": "/pilote/kubernetes/deployments",
+      "parent_key": "menu.csd-pilote.kubernetes",
+      "required_permission": "csd-pilote.deployments.read",
+      "sort_order": 103
+    }
+  },
+  {
+    "key": "menu.csd-pilote.pods",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-kubernetes-pods",
+      "name": "Pods",
+      "name_translations": {
+        "en": "Pods",
+        "fr": "Pods",
+        "de": "Pods",
+        "es": "Pods",
+        "it": "Pod"
+      },
+      "icon": "box",
+      "path": "/pilote/kubernetes/pods",
+      "parent_key": "menu.csd-pilote.kubernetes",
+      "required_permission": "csd-pilote.pods.read",
+      "sort_order": 104
+    }
+  },
+  {
+    "key": "menu.csd-pilote.services",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-kubernetes-services",
+      "name": "Services",
+      "name_translations": {
+        "en": "Services",
+        "fr": "Services",
+        "de": "Services",
+        "es": "Servicios",
+        "it": "Servizi"
+      },
+      "icon": "hub",
+      "path": "/pilote/kubernetes/services",
+      "parent_key": "menu.csd-pilote.kubernetes",
+      "required_permission": "csd-pilote.services.read",
+      "sort_order": 105
+    }
+  },
+  {
+    "key": "menu.csd-pilote.libvirt",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-libvirt",
+      "name": "Libvirt",
+      "name_translations": {
+        "en": "Libvirt",
+        "fr": "Libvirt",
+        "de": "Libvirt",
+        "es": "Libvirt",
+        "it": "Libvirt"
+      },
+      "icon": "server",
+      "required_permission": "csd-pilote.hypervisors.read",
+      "sort_order": 200
+    }
+  },
+  {
+    "key": "menu.csd-pilote.hypervisors",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-libvirt-hypervisors",
+      "name": "Hypervisors",
+      "name_translations": {
+        "en": "Hypervisors",
+        "fr": "Hyperviseurs",
+        "de": "Hypervisoren",
+        "es": "Hipervisores",
+        "it": "Hypervisor"
+      },
+      "icon": "cpu",
+      "path": "/pilote/libvirt/hypervisors",
+      "parent_key": "menu.csd-pilote.libvirt",
+      "required_permission": "csd-pilote.hypervisors.read",
+      "sort_order": 201
+    }
+  },
+  {
+    "key": "menu.csd-pilote.domains",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-libvirt-domains",
+      "name": "Virtual Machines",
+      "name_translations": {
+        "en": "Virtual Machines",
+        "fr": "Machines virtuelles",
+        "de": "Virtuelle Maschinen",
+        "es": "Máquinas virtuales",
+        "it": "Macchine virtuali"
+      },
+      "icon": "monitor",
+      "path": "/pilote/libvirt/domains",
+      "parent_key": "menu.csd-pilote.libvirt",
+      "required_permission": "csd-pilote.domains.read",
+      "sort_order": 202
+    }
+  },
+  {
+    "key": "menu.csd-pilote.networks",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-libvirt-networks",
+      "name": "Networks",
+      "name_translations": {
+        "en": "Networks",
+        "fr": "Réseaux",
+        "de": "Netzwerke",
+        "es": "Redes",
+        "it": "Reti"
+      },
+      "icon": "wifi",
+      "path": "/pilote/libvirt/networks",
+      "parent_key": "menu.csd-pilote.libvirt",
+      "required_permission": "csd-pilote.networks.read",
+      "sort_order": 203
+    }
+  },
+  {
+    "key": "menu.csd-pilote.storage",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-libvirt-storage",
+      "name": "Storage",
+      "name_translations": {
+        "en": "Storage",
+        "fr": "Stockage",
+        "de": "Speicher",
+        "es": "Almacenamiento",
+        "it": "Storage"
+      },
+      "icon": "database",
+      "path": "/pilote/libvirt/storage",
+      "parent_key": "menu.csd-pilote.libvirt",
+      "required_permission": "csd-pilote.storage.read",
+      "sort_order": 204
+    }
+  },
+  {
+    "key": "menu.csd-pilote.containers",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-containers",
+      "name": "Containers",
+      "name_translations": {
+        "en": "Container Engines",
+        "fr": "Moteurs de conteneurs",
+        "de": "Container-Engines",
+        "es": "Motores de contenedores",
+        "it": "Motori container"
+      },
+      "icon": "docker",
+      "required_permission": "csd-pilote.containers.read",
+      "sort_order": 300
+    }
+  },
+  {
+    "key": "menu.csd-pilote.container-engines",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-container-engines",
+      "name": "Engines",
+      "name_translations": {
+        "en": "Engines",
+        "fr": "Moteurs",
+        "de": "Engines",
+        "es": "Motores",
+        "it": "Engine"
+      },
+      "icon": "settings",
+      "path": "/pilote/containers/engines",
+      "parent_key": "menu.csd-pilote.containers",
+      "required_permission": "csd-pilote.containers.read",
+      "sort_order": 301
+    }
+  },
+  {
+    "key": "menu.csd-pilote.container-list",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-container-list",
+      "name": "Containers",
+      "name_translations": {
+        "en": "Containers",
+        "fr": "Conteneurs",
+        "de": "Container",
+        "es": "Contenedores",
+        "it": "Container"
+      },
+      "icon": "box",
+      "path": "/pilote/containers/list",
+      "parent_key": "menu.csd-pilote.containers",
+      "required_permission": "csd-pilote.containers.read",
+      "sort_order": 302
+    }
+  },
+  {
+    "key": "menu.csd-pilote.images",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-container-images",
+      "name": "Images",
+      "name_translations": {
+        "en": "Images",
+        "fr": "Images",
+        "de": "Images",
+        "es": "Imágenes",
+        "it": "Immagini"
+      },
+      "icon": "image",
+      "path": "/pilote/containers/images",
+      "parent_key": "menu.csd-pilote.containers",
+      "required_permission": "csd-pilote.containers.read",
+      "sort_order": 303
+    }
+  }
+]

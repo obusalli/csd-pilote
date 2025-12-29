@@ -1,0 +1,42 @@
+[
+  {
+    "name": "kubeconfig",
+    "description": "Kubernetes cluster configuration file",
+    "allowedMimeTypes": ["application/x-yaml", "text/yaml", "text/plain"],
+    "fileExtensions": [".yaml", ".yml", ".kubeconfig", ".conf"],
+    "maxFileSize": 1048576,
+    "format": "file",
+    "isPublic": false,
+    "allowedCategories": ["kubernetes", "cluster-config"]
+  },
+  {
+    "name": "libvirt-ssh-key",
+    "description": "SSH private key for Libvirt remote connection",
+    "allowedMimeTypes": ["application/x-pem-file", "text/plain"],
+    "fileExtensions": [".pem", ".key", ""],
+    "maxFileSize": 65536,
+    "format": "file",
+    "isPublic": false,
+    "allowedCategories": ["libvirt", "ssh-key"]
+  },
+  {
+    "name": "docker-tls-certs",
+    "description": "TLS certificates for Docker/Podman remote connection",
+    "allowedMimeTypes": ["application/x-pem-file", "application/x-x509-ca-cert", "text/plain"],
+    "fileExtensions": [".pem", ".crt", ".key"],
+    "maxFileSize": 65536,
+    "format": "file",
+    "isPublic": false,
+    "allowedCategories": ["docker", "podman", "tls"]
+  },
+  {
+    "name": "docker-config",
+    "description": "Docker/Podman configuration file (config.json)",
+    "allowedMimeTypes": ["application/json", "text/plain"],
+    "fileExtensions": [".json"],
+    "maxFileSize": 1048576,
+    "format": "json",
+    "isPublic": false,
+    "allowedCategories": ["docker", "podman", "registry"]
+  }
+]

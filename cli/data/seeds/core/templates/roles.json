@@ -1,0 +1,479 @@
+[
+  {
+    "name": "CSD Pilote Roles - Admin Organization",
+    "note": "Infrastructure management roles for the admin organization",
+    "template_type": "role",
+    "target_tenant_type": "ADMIN",
+    "is_active": true,
+    "config": [
+      {
+        "name": "Infrastructure Admin",
+        "note": "Full access to all infrastructure features (Kubernetes, Libvirt, Containers)",
+        "permissions": [
+          "csd-pilote.clusters.read",
+          "csd-pilote.clusters.create",
+          "csd-pilote.clusters.update",
+          "csd-pilote.clusters.delete",
+          "csd-pilote.namespaces.read",
+          "csd-pilote.deployments.read",
+          "csd-pilote.deployments.create",
+          "csd-pilote.deployments.update",
+          "csd-pilote.deployments.delete",
+          "csd-pilote.pods.read",
+          "csd-pilote.pods.delete",
+          "csd-pilote.pods.logs",
+          "csd-pilote.pods.exec",
+          "csd-pilote.services.read",
+          "csd-pilote.services.create",
+          "csd-pilote.services.delete",
+          "csd-pilote.hypervisors.read",
+          "csd-pilote.hypervisors.create",
+          "csd-pilote.hypervisors.update",
+          "csd-pilote.hypervisors.delete",
+          "csd-pilote.domains.read",
+          "csd-pilote.domains.create",
+          "csd-pilote.domains.update",
+          "csd-pilote.domains.delete",
+          "csd-pilote.domains.power",
+          "csd-pilote.domains.console",
+          "csd-pilote.networks.read",
+          "csd-pilote.networks.create",
+          "csd-pilote.networks.delete",
+          "csd-pilote.storage.read",
+          "csd-pilote.storage.create",
+          "csd-pilote.storage.delete",
+          "csd-pilote.containers.read",
+          "csd-pilote.containers.create",
+          "csd-pilote.containers.update",
+          "csd-pilote.containers.delete",
+          "csd-pilote.containers.manage",
+          "csd-pilote.containers.exec"
+        ],
+        "name_translations": {
+          "en": "Infrastructure Admin",
+          "fr": "Admin Infrastructure",
+          "de": "Infrastruktur-Admin",
+          "es": "Admin de Infraestructura",
+          "it": "Admin Infrastruttura"
+        },
+        "note_translations": {
+          "en": "Full access to all infrastructure features (Kubernetes, Libvirt, Containers)",
+          "fr": "Accès complet à toutes les fonctionnalités d'infrastructure (Kubernetes, Libvirt, Conteneurs)",
+          "de": "Voller Zugriff auf alle Infrastruktur-Funktionen (Kubernetes, Libvirt, Container)",
+          "es": "Acceso completo a todas las funciones de infraestructura (Kubernetes, Libvirt, Contenedores)",
+          "it": "Accesso completo a tutte le funzionalità dell'infrastruttura (Kubernetes, Libvirt, Container)"
+        }
+      },
+      {
+        "name": "Infrastructure Manager",
+        "note": "Manage infrastructure without delete rights",
+        "permissions": [
+          "csd-pilote.clusters.read",
+          "csd-pilote.clusters.create",
+          "csd-pilote.clusters.update",
+          "csd-pilote.namespaces.read",
+          "csd-pilote.deployments.read",
+          "csd-pilote.deployments.create",
+          "csd-pilote.deployments.update",
+          "csd-pilote.pods.read",
+          "csd-pilote.pods.logs",
+          "csd-pilote.services.read",
+          "csd-pilote.services.create",
+          "csd-pilote.hypervisors.read",
+          "csd-pilote.hypervisors.create",
+          "csd-pilote.hypervisors.update",
+          "csd-pilote.domains.read",
+          "csd-pilote.domains.create",
+          "csd-pilote.domains.update",
+          "csd-pilote.domains.power",
+          "csd-pilote.domains.console",
+          "csd-pilote.networks.read",
+          "csd-pilote.networks.create",
+          "csd-pilote.storage.read",
+          "csd-pilote.storage.create",
+          "csd-pilote.containers.read",
+          "csd-pilote.containers.create",
+          "csd-pilote.containers.update",
+          "csd-pilote.containers.manage"
+        ],
+        "name_translations": {
+          "en": "Infrastructure Manager",
+          "fr": "Gestionnaire d'Infrastructure",
+          "de": "Infrastruktur-Manager",
+          "es": "Gestor de Infraestructura",
+          "it": "Gestore Infrastruttura"
+        },
+        "note_translations": {
+          "en": "Manage infrastructure without delete rights",
+          "fr": "Gérer l'infrastructure sans droit de suppression",
+          "de": "Infrastruktur ohne Löschrechte verwalten",
+          "es": "Gestionar infraestructura sin derechos de eliminación",
+          "it": "Gestire l'infrastruttura senza diritti di eliminazione"
+        }
+      },
+      {
+        "name": "Infrastructure Operator",
+        "note": "Operate infrastructure: start/stop VMs, scale deployments, view logs",
+        "permissions": [
+          "csd-pilote.clusters.read",
+          "csd-pilote.namespaces.read",
+          "csd-pilote.deployments.read",
+          "csd-pilote.deployments.update",
+          "csd-pilote.pods.read",
+          "csd-pilote.pods.delete",
+          "csd-pilote.pods.logs",
+          "csd-pilote.services.read",
+          "csd-pilote.hypervisors.read",
+          "csd-pilote.domains.read",
+          "csd-pilote.domains.power",
+          "csd-pilote.domains.console",
+          "csd-pilote.networks.read",
+          "csd-pilote.storage.read",
+          "csd-pilote.containers.read",
+          "csd-pilote.containers.manage"
+        ],
+        "name_translations": {
+          "en": "Infrastructure Operator",
+          "fr": "Opérateur d'Infrastructure",
+          "de": "Infrastruktur-Operator",
+          "es": "Operador de Infraestructura",
+          "it": "Operatore Infrastruttura"
+        },
+        "note_translations": {
+          "en": "Operate infrastructure: start/stop VMs, scale deployments, view logs",
+          "fr": "Opérer l'infrastructure : démarrer/arrêter les VMs, scaler les déploiements, voir les logs",
+          "de": "Infrastruktur betreiben: VMs starten/stoppen, Deployments skalieren, Logs anzeigen",
+          "es": "Operar infraestructura: iniciar/detener VMs, escalar despliegues, ver logs",
+          "it": "Operare l'infrastruttura: avviare/arrestare VM, scalare deployment, visualizzare log"
+        }
+      },
+      {
+        "name": "Infrastructure Viewer",
+        "note": "Read-only access to all infrastructure data",
+        "permissions": [
+          "csd-pilote.clusters.read",
+          "csd-pilote.namespaces.read",
+          "csd-pilote.deployments.read",
+          "csd-pilote.pods.read",
+          "csd-pilote.pods.logs",
+          "csd-pilote.services.read",
+          "csd-pilote.hypervisors.read",
+          "csd-pilote.domains.read",
+          "csd-pilote.networks.read",
+          "csd-pilote.storage.read",
+          "csd-pilote.containers.read"
+        ],
+        "name_translations": {
+          "en": "Infrastructure Viewer",
+          "fr": "Lecteur Infrastructure",
+          "de": "Infrastruktur-Betrachter",
+          "es": "Lector de Infraestructura",
+          "it": "Osservatore Infrastruttura"
+        },
+        "note_translations": {
+          "en": "Read-only access to all infrastructure data",
+          "fr": "Accès en lecture seule à toutes les données d'infrastructure",
+          "de": "Nur-Lese-Zugriff auf alle Infrastruktur-Daten",
+          "es": "Acceso de solo lectura a todos los datos de infraestructura",
+          "it": "Accesso in sola lettura a tutti i dati dell'infrastruttura"
+        }
+      }
+    ],
+    "name_translations": {
+      "en": "CSD Pilote Roles - Admin Organization",
+      "fr": "Rôles CSD Pilote - Organisation Admin",
+      "de": "CSD Pilote Rollen - Admin-Organisation",
+      "es": "Roles CSD Pilote - Organización Admin",
+      "it": "Ruoli CSD Pilote - Organizzazione Admin"
+    },
+    "note_translations": {
+      "en": "Infrastructure management roles for the admin organization",
+      "fr": "Rôles de gestion d'infrastructure pour l'organisation admin",
+      "de": "Infrastruktur-Verwaltungsrollen für die Admin-Organisation",
+      "es": "Roles de gestión de infraestructura para la organización admin",
+      "it": "Ruoli di gestione infrastruttura per l'organizzazione admin"
+    }
+  },
+  {
+    "name": "CSD Pilote Roles - Organization",
+    "note": "Infrastructure management roles for standard organizations",
+    "template_type": "role",
+    "target_tenant_type": "TENANT",
+    "is_active": true,
+    "config": [
+      {
+        "name": "Infrastructure Admin",
+        "note": "Full access to all infrastructure features (Kubernetes, Libvirt, Containers)",
+        "permissions": [
+          "csd-pilote.clusters.read",
+          "csd-pilote.clusters.create",
+          "csd-pilote.clusters.update",
+          "csd-pilote.clusters.delete",
+          "csd-pilote.namespaces.read",
+          "csd-pilote.deployments.read",
+          "csd-pilote.deployments.create",
+          "csd-pilote.deployments.update",
+          "csd-pilote.deployments.delete",
+          "csd-pilote.pods.read",
+          "csd-pilote.pods.delete",
+          "csd-pilote.pods.logs",
+          "csd-pilote.pods.exec",
+          "csd-pilote.services.read",
+          "csd-pilote.services.create",
+          "csd-pilote.services.delete",
+          "csd-pilote.hypervisors.read",
+          "csd-pilote.hypervisors.create",
+          "csd-pilote.hypervisors.update",
+          "csd-pilote.hypervisors.delete",
+          "csd-pilote.domains.read",
+          "csd-pilote.domains.create",
+          "csd-pilote.domains.update",
+          "csd-pilote.domains.delete",
+          "csd-pilote.domains.power",
+          "csd-pilote.domains.console",
+          "csd-pilote.networks.read",
+          "csd-pilote.networks.create",
+          "csd-pilote.networks.delete",
+          "csd-pilote.storage.read",
+          "csd-pilote.storage.create",
+          "csd-pilote.storage.delete",
+          "csd-pilote.containers.read",
+          "csd-pilote.containers.create",
+          "csd-pilote.containers.update",
+          "csd-pilote.containers.delete",
+          "csd-pilote.containers.manage",
+          "csd-pilote.containers.exec"
+        ],
+        "name_translations": {
+          "en": "Infrastructure Admin",
+          "fr": "Admin Infrastructure",
+          "de": "Infrastruktur-Admin",
+          "es": "Admin de Infraestructura",
+          "it": "Admin Infrastruttura"
+        },
+        "note_translations": {
+          "en": "Full access to all infrastructure features (Kubernetes, Libvirt, Containers)",
+          "fr": "Accès complet à toutes les fonctionnalités d'infrastructure (Kubernetes, Libvirt, Conteneurs)",
+          "de": "Voller Zugriff auf alle Infrastruktur-Funktionen (Kubernetes, Libvirt, Container)",
+          "es": "Acceso completo a todas las funciones de infraestructura (Kubernetes, Libvirt, Contenedores)",
+          "it": "Accesso completo a tutte le funzionalità dell'infrastruttura (Kubernetes, Libvirt, Container)"
+        }
+      },
+      {
+        "name": "Infrastructure Manager",
+        "note": "Manage infrastructure without delete rights",
+        "permissions": [
+          "csd-pilote.clusters.read",
+          "csd-pilote.clusters.create",
+          "csd-pilote.clusters.update",
+          "csd-pilote.namespaces.read",
+          "csd-pilote.deployments.read",
+          "csd-pilote.deployments.create",
+          "csd-pilote.deployments.update",
+          "csd-pilote.pods.read",
+          "csd-pilote.pods.logs",
+          "csd-pilote.services.read",
+          "csd-pilote.services.create",
+          "csd-pilote.hypervisors.read",
+          "csd-pilote.hypervisors.create",
+          "csd-pilote.hypervisors.update",
+          "csd-pilote.domains.read",
+          "csd-pilote.domains.create",
+          "csd-pilote.domains.update",
+          "csd-pilote.domains.power",
+          "csd-pilote.domains.console",
+          "csd-pilote.networks.read",
+          "csd-pilote.networks.create",
+          "csd-pilote.storage.read",
+          "csd-pilote.storage.create",
+          "csd-pilote.containers.read",
+          "csd-pilote.containers.create",
+          "csd-pilote.containers.update",
+          "csd-pilote.containers.manage"
+        ],
+        "name_translations": {
+          "en": "Infrastructure Manager",
+          "fr": "Gestionnaire d'Infrastructure",
+          "de": "Infrastruktur-Manager",
+          "es": "Gestor de Infraestructura",
+          "it": "Gestore Infrastruttura"
+        },
+        "note_translations": {
+          "en": "Manage infrastructure without delete rights",
+          "fr": "Gérer l'infrastructure sans droit de suppression",
+          "de": "Infrastruktur ohne Löschrechte verwalten",
+          "es": "Gestionar infraestructura sin derechos de eliminación",
+          "it": "Gestire l'infrastruttura senza diritti di eliminazione"
+        }
+      },
+      {
+        "name": "Infrastructure Operator",
+        "note": "Operate infrastructure: start/stop VMs, scale deployments, view logs",
+        "permissions": [
+          "csd-pilote.clusters.read",
+          "csd-pilote.namespaces.read",
+          "csd-pilote.deployments.read",
+          "csd-pilote.deployments.update",
+          "csd-pilote.pods.read",
+          "csd-pilote.pods.delete",
+          "csd-pilote.pods.logs",
+          "csd-pilote.services.read",
+          "csd-pilote.hypervisors.read",
+          "csd-pilote.domains.read",
+          "csd-pilote.domains.power",
+          "csd-pilote.domains.console",
+          "csd-pilote.networks.read",
+          "csd-pilote.storage.read",
+          "csd-pilote.containers.read",
+          "csd-pilote.containers.manage"
+        ],
+        "name_translations": {
+          "en": "Infrastructure Operator",
+          "fr": "Opérateur d'Infrastructure",
+          "de": "Infrastruktur-Operator",
+          "es": "Operador de Infraestructura",
+          "it": "Operatore Infrastruttura"
+        },
+        "note_translations": {
+          "en": "Operate infrastructure: start/stop VMs, scale deployments, view logs",
+          "fr": "Opérer l'infrastructure : démarrer/arrêter les VMs, scaler les déploiements, voir les logs",
+          "de": "Infrastruktur betreiben: VMs starten/stoppen, Deployments skalieren, Logs anzeigen",
+          "es": "Operar infraestructura: iniciar/detener VMs, escalar despliegues, ver logs",
+          "it": "Operare l'infrastruttura: avviare/arrestare VM, scalare deployment, visualizzare log"
+        }
+      },
+      {
+        "name": "Infrastructure Viewer",
+        "note": "Read-only access to all infrastructure data",
+        "permissions": [
+          "csd-pilote.clusters.read",
+          "csd-pilote.namespaces.read",
+          "csd-pilote.deployments.read",
+          "csd-pilote.pods.read",
+          "csd-pilote.pods.logs",
+          "csd-pilote.services.read",
+          "csd-pilote.hypervisors.read",
+          "csd-pilote.domains.read",
+          "csd-pilote.networks.read",
+          "csd-pilote.storage.read",
+          "csd-pilote.containers.read"
+        ],
+        "name_translations": {
+          "en": "Infrastructure Viewer",
+          "fr": "Lecteur Infrastructure",
+          "de": "Infrastruktur-Betrachter",
+          "es": "Lector de Infraestructura",
+          "it": "Osservatore Infrastruttura"
+        },
+        "note_translations": {
+          "en": "Read-only access to all infrastructure data",
+          "fr": "Accès en lecture seule à toutes les données d'infrastructure",
+          "de": "Nur-Lese-Zugriff auf alle Infrastruktur-Daten",
+          "es": "Acceso de solo lectura a todos los datos de infraestructura",
+          "it": "Accesso in sola lettura a tutti i dati dell'infrastruttura"
+        }
+      }
+    ],
+    "name_translations": {
+      "en": "CSD Pilote Roles - Organization",
+      "fr": "Rôles CSD Pilote - Organisation",
+      "de": "CSD Pilote Rollen - Organisation",
+      "es": "Roles CSD Pilote - Organización",
+      "it": "Ruoli CSD Pilote - Organizzazione"
+    },
+    "note_translations": {
+      "en": "Infrastructure management roles for standard organizations",
+      "fr": "Rôles de gestion d'infrastructure pour les organisations standard",
+      "de": "Infrastruktur-Verwaltungsrollen für Standardorganisationen",
+      "es": "Roles de gestión de infraestructura para organizaciones estándar",
+      "it": "Ruoli di gestione infrastruttura per organizzazioni standard"
+    }
+  },
+  {
+    "name": "CSD Pilote Roles - Client",
+    "note": "Infrastructure management roles for clients",
+    "template_type": "role",
+    "target_tenant_type": "CLIENT",
+    "is_active": true,
+    "config": [
+      {
+        "name": "Infrastructure Operator",
+        "note": "Operate assigned infrastructure: start/stop VMs, view logs",
+        "permissions": [
+          "csd-pilote.clusters.read",
+          "csd-pilote.namespaces.read",
+          "csd-pilote.deployments.read",
+          "csd-pilote.pods.read",
+          "csd-pilote.pods.logs",
+          "csd-pilote.services.read",
+          "csd-pilote.hypervisors.read",
+          "csd-pilote.domains.read",
+          "csd-pilote.domains.power",
+          "csd-pilote.domains.console",
+          "csd-pilote.networks.read",
+          "csd-pilote.storage.read",
+          "csd-pilote.containers.read",
+          "csd-pilote.containers.manage"
+        ],
+        "name_translations": {
+          "en": "Infrastructure Operator",
+          "fr": "Opérateur d'Infrastructure",
+          "de": "Infrastruktur-Operator",
+          "es": "Operador de Infraestructura",
+          "it": "Operatore Infrastruttura"
+        },
+        "note_translations": {
+          "en": "Operate assigned infrastructure: start/stop VMs, view logs",
+          "fr": "Opérer l'infrastructure assignée : démarrer/arrêter les VMs, voir les logs",
+          "de": "Zugewiesene Infrastruktur betreiben: VMs starten/stoppen, Logs anzeigen",
+          "es": "Operar infraestructura asignada: iniciar/detener VMs, ver logs",
+          "it": "Operare l'infrastruttura assegnata: avviare/arrestare VM, visualizzare log"
+        }
+      },
+      {
+        "name": "Infrastructure Viewer",
+        "note": "Read-only access to assigned infrastructure",
+        "permissions": [
+          "csd-pilote.clusters.read",
+          "csd-pilote.namespaces.read",
+          "csd-pilote.deployments.read",
+          "csd-pilote.pods.read",
+          "csd-pilote.services.read",
+          "csd-pilote.hypervisors.read",
+          "csd-pilote.domains.read",
+          "csd-pilote.networks.read",
+          "csd-pilote.storage.read",
+          "csd-pilote.containers.read"
+        ],
+        "name_translations": {
+          "en": "Infrastructure Viewer",
+          "fr": "Lecteur Infrastructure",
+          "de": "Infrastruktur-Betrachter",
+          "es": "Lector de Infraestructura",
+          "it": "Osservatore Infrastruttura"
+        },
+        "note_translations": {
+          "en": "Read-only access to assigned infrastructure",
+          "fr": "Accès en lecture seule à l'infrastructure assignée",
+          "de": "Nur-Lese-Zugriff auf zugewiesene Infrastruktur",
+          "es": "Acceso de solo lectura a la infraestructura asignada",
+          "it": "Accesso in sola lettura all'infrastruttura assegnata"
+        }
+      }
+    ],
+    "name_translations": {
+      "en": "CSD Pilote Roles - Client",
+      "fr": "Rôles CSD Pilote - Client",
+      "de": "CSD Pilote Rollen - Client",
+      "es": "Roles CSD Pilote - Cliente",
+      "it": "Ruoli CSD Pilote - Client"
+    },
+    "note_translations": {
+      "en": "Infrastructure management roles for clients",
+      "fr": "Rôles de gestion d'infrastructure pour les clients",
+      "de": "Infrastruktur-Verwaltungsrollen für Clients",
+      "es": "Roles de gestión de infraestructura para clientes",
+      "it": "Ruoli di gestione infrastruttura per client"
+    }
+  }
+]

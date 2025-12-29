@@ -1,0 +1,24 @@
+# CSD-Pilote CLI Configuration
+
+# Shared configuration
+common:
+  database:
+    url: "postgres://postgres@localhost:5432/csd_pilote?sslmode=prefer"
+  csd-core:
+    url: "http://127.0.0.1:9090"
+    graphql-endpoint: "/core/api/latest/query"
+  logging:
+    level: info
+
+# CLI-specific configuration
+cli:
+  dev-mode: true
+  csd-core:
+    service-token: "K63c-nrsJA0ig9D3eguubLqL8Ro2NpIgsyi4HrzbmRU"
+  seeds:
+    core-path: "data/seeds/core"
+    app-path: "data/seeds/app"
+  logging:
+    file:
+      enabled: false
+      path: "logs/cli.log"

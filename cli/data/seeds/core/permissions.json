@@ -1,0 +1,458 @@
+[
+  {
+    "code": "csd-pilote.clusters.read",
+    "name": "View Kubernetes clusters",
+    "name_translations": {
+      "en": "View Kubernetes clusters",
+      "fr": "Voir les clusters Kubernetes",
+      "de": "Kubernetes-Cluster anzeigen",
+      "es": "Ver clústeres de Kubernetes",
+      "it": "Visualizza cluster Kubernetes"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.clusters.create",
+    "name": "Create Kubernetes clusters",
+    "name_translations": {
+      "en": "Create Kubernetes clusters",
+      "fr": "Créer des clusters Kubernetes",
+      "de": "Kubernetes-Cluster erstellen",
+      "es": "Crear clústeres de Kubernetes",
+      "it": "Crea cluster Kubernetes"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.clusters.update",
+    "name": "Update Kubernetes clusters",
+    "name_translations": {
+      "en": "Update Kubernetes clusters",
+      "fr": "Modifier les clusters Kubernetes",
+      "de": "Kubernetes-Cluster aktualisieren",
+      "es": "Actualizar clústeres de Kubernetes",
+      "it": "Aggiorna cluster Kubernetes"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.clusters.delete",
+    "name": "Delete Kubernetes clusters",
+    "name_translations": {
+      "en": "Delete Kubernetes clusters",
+      "fr": "Supprimer les clusters Kubernetes",
+      "de": "Kubernetes-Cluster löschen",
+      "es": "Eliminar clústeres de Kubernetes",
+      "it": "Elimina cluster Kubernetes"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.namespaces.read",
+    "name": "View Kubernetes namespaces",
+    "name_translations": {
+      "en": "View Kubernetes namespaces",
+      "fr": "Voir les namespaces Kubernetes",
+      "de": "Kubernetes-Namespaces anzeigen",
+      "es": "Ver namespaces de Kubernetes",
+      "it": "Visualizza namespace Kubernetes"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.deployments.read",
+    "name": "View Kubernetes deployments",
+    "name_translations": {
+      "en": "View Kubernetes deployments",
+      "fr": "Voir les déploiements Kubernetes",
+      "de": "Kubernetes-Deployments anzeigen",
+      "es": "Ver deployments de Kubernetes",
+      "it": "Visualizza deployment Kubernetes"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.deployments.create",
+    "name": "Create Kubernetes deployments",
+    "name_translations": {
+      "en": "Create Kubernetes deployments",
+      "fr": "Créer des déploiements Kubernetes",
+      "de": "Kubernetes-Deployments erstellen",
+      "es": "Crear deployments de Kubernetes",
+      "it": "Crea deployment Kubernetes"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.deployments.update",
+    "name": "Update Kubernetes deployments",
+    "name_translations": {
+      "en": "Update Kubernetes deployments",
+      "fr": "Modifier les déploiements Kubernetes",
+      "de": "Kubernetes-Deployments aktualisieren",
+      "es": "Actualizar deployments de Kubernetes",
+      "it": "Aggiorna deployment Kubernetes"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.deployments.delete",
+    "name": "Delete Kubernetes deployments",
+    "name_translations": {
+      "en": "Delete Kubernetes deployments",
+      "fr": "Supprimer les déploiements Kubernetes",
+      "de": "Kubernetes-Deployments löschen",
+      "es": "Eliminar deployments de Kubernetes",
+      "it": "Elimina deployment Kubernetes"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.pods.read",
+    "name": "View Kubernetes pods",
+    "name_translations": {
+      "en": "View Kubernetes pods",
+      "fr": "Voir les pods Kubernetes",
+      "de": "Kubernetes-Pods anzeigen",
+      "es": "Ver pods de Kubernetes",
+      "it": "Visualizza pod Kubernetes"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.pods.delete",
+    "name": "Delete Kubernetes pods",
+    "name_translations": {
+      "en": "Delete Kubernetes pods",
+      "fr": "Supprimer les pods Kubernetes",
+      "de": "Kubernetes-Pods löschen",
+      "es": "Eliminar pods de Kubernetes",
+      "it": "Elimina pod Kubernetes"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.pods.logs",
+    "name": "View Kubernetes pod logs",
+    "name_translations": {
+      "en": "View Kubernetes pod logs",
+      "fr": "Voir les logs des pods",
+      "de": "Pod-Logs anzeigen",
+      "es": "Ver logs de pods",
+      "it": "Visualizza log pod"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.pods.exec",
+    "name": "Execute commands in pods",
+    "name_translations": {
+      "en": "Execute commands in pods",
+      "fr": "Exécuter des commandes dans les pods",
+      "de": "Befehle in Pods ausführen",
+      "es": "Ejecutar comandos en pods",
+      "it": "Esegui comandi nei pod"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.services.read",
+    "name": "View Kubernetes services",
+    "name_translations": {
+      "en": "View Kubernetes services",
+      "fr": "Voir les services Kubernetes",
+      "de": "Kubernetes-Services anzeigen",
+      "es": "Ver servicios de Kubernetes",
+      "it": "Visualizza servizi Kubernetes"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.services.create",
+    "name": "Create Kubernetes services",
+    "name_translations": {
+      "en": "Create Kubernetes services",
+      "fr": "Créer des services Kubernetes",
+      "de": "Kubernetes-Services erstellen",
+      "es": "Crear servicios de Kubernetes",
+      "it": "Crea servizi Kubernetes"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.services.delete",
+    "name": "Delete Kubernetes services",
+    "name_translations": {
+      "en": "Delete Kubernetes services",
+      "fr": "Supprimer les services Kubernetes",
+      "de": "Kubernetes-Services löschen",
+      "es": "Eliminar servicios de Kubernetes",
+      "it": "Elimina servizi Kubernetes"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.hypervisors.read",
+    "name": "View Libvirt hypervisors",
+    "name_translations": {
+      "en": "View Libvirt hypervisors",
+      "fr": "Voir les hyperviseurs Libvirt",
+      "de": "Libvirt-Hypervisoren anzeigen",
+      "es": "Ver hipervisores Libvirt",
+      "it": "Visualizza hypervisor Libvirt"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.hypervisors.create",
+    "name": "Create Libvirt hypervisors",
+    "name_translations": {
+      "en": "Create Libvirt hypervisors",
+      "fr": "Créer des hyperviseurs Libvirt",
+      "de": "Libvirt-Hypervisoren erstellen",
+      "es": "Crear hipervisores Libvirt",
+      "it": "Crea hypervisor Libvirt"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.hypervisors.update",
+    "name": "Update Libvirt hypervisors",
+    "name_translations": {
+      "en": "Update Libvirt hypervisors",
+      "fr": "Modifier les hyperviseurs Libvirt",
+      "de": "Libvirt-Hypervisoren aktualisieren",
+      "es": "Actualizar hipervisores Libvirt",
+      "it": "Aggiorna hypervisor Libvirt"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.hypervisors.delete",
+    "name": "Delete Libvirt hypervisors",
+    "name_translations": {
+      "en": "Delete Libvirt hypervisors",
+      "fr": "Supprimer les hyperviseurs Libvirt",
+      "de": "Libvirt-Hypervisoren löschen",
+      "es": "Eliminar hipervisores Libvirt",
+      "it": "Elimina hypervisor Libvirt"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.domains.read",
+    "name": "View virtual machines",
+    "name_translations": {
+      "en": "View virtual machines",
+      "fr": "Voir les machines virtuelles",
+      "de": "Virtuelle Maschinen anzeigen",
+      "es": "Ver máquinas virtuales",
+      "it": "Visualizza macchine virtuali"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.domains.create",
+    "name": "Create virtual machines",
+    "name_translations": {
+      "en": "Create virtual machines",
+      "fr": "Créer des machines virtuelles",
+      "de": "Virtuelle Maschinen erstellen",
+      "es": "Crear máquinas virtuales",
+      "it": "Crea macchine virtuali"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.domains.update",
+    "name": "Update virtual machines",
+    "name_translations": {
+      "en": "Update virtual machines",
+      "fr": "Modifier les machines virtuelles",
+      "de": "Virtuelle Maschinen aktualisieren",
+      "es": "Actualizar máquinas virtuales",
+      "it": "Aggiorna macchine virtuali"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.domains.delete",
+    "name": "Delete virtual machines",
+    "name_translations": {
+      "en": "Delete virtual machines",
+      "fr": "Supprimer les machines virtuelles",
+      "de": "Virtuelle Maschinen löschen",
+      "es": "Eliminar máquinas virtuales",
+      "it": "Elimina macchine virtuali"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.domains.power",
+    "name": "Start/Stop virtual machines",
+    "name_translations": {
+      "en": "Start/Stop virtual machines",
+      "fr": "Démarrer/Arrêter les machines virtuelles",
+      "de": "VMs starten/stoppen",
+      "es": "Iniciar/Detener máquinas virtuales",
+      "it": "Avvia/Arresta macchine virtuali"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.domains.console",
+    "name": "Access VM console",
+    "name_translations": {
+      "en": "Access VM console",
+      "fr": "Accéder à la console VM",
+      "de": "VM-Konsole zugreifen",
+      "es": "Acceder a la consola VM",
+      "it": "Accedi alla console VM"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.networks.read",
+    "name": "View networks",
+    "name_translations": {
+      "en": "View networks",
+      "fr": "Voir les réseaux",
+      "de": "Netzwerke anzeigen",
+      "es": "Ver redes",
+      "it": "Visualizza reti"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.networks.create",
+    "name": "Create networks",
+    "name_translations": {
+      "en": "Create networks",
+      "fr": "Créer des réseaux",
+      "de": "Netzwerke erstellen",
+      "es": "Crear redes",
+      "it": "Crea reti"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.networks.delete",
+    "name": "Delete networks",
+    "name_translations": {
+      "en": "Delete networks",
+      "fr": "Supprimer les réseaux",
+      "de": "Netzwerke löschen",
+      "es": "Eliminar redes",
+      "it": "Elimina reti"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.storage.read",
+    "name": "View storage",
+    "name_translations": {
+      "en": "View storage",
+      "fr": "Voir le stockage",
+      "de": "Speicher anzeigen",
+      "es": "Ver almacenamiento",
+      "it": "Visualizza storage"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.storage.create",
+    "name": "Create storage",
+    "name_translations": {
+      "en": "Create storage",
+      "fr": "Créer du stockage",
+      "de": "Speicher erstellen",
+      "es": "Crear almacenamiento",
+      "it": "Crea storage"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.storage.delete",
+    "name": "Delete storage",
+    "name_translations": {
+      "en": "Delete storage",
+      "fr": "Supprimer le stockage",
+      "de": "Speicher löschen",
+      "es": "Eliminar almacenamiento",
+      "it": "Elimina storage"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.containers.read",
+    "name": "View container engines",
+    "name_translations": {
+      "en": "View container engines",
+      "fr": "Voir les moteurs de conteneurs",
+      "de": "Container-Engines anzeigen",
+      "es": "Ver motores de contenedores",
+      "it": "Visualizza motori container"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.containers.create",
+    "name": "Create container engines",
+    "name_translations": {
+      "en": "Create container engines",
+      "fr": "Créer des moteurs de conteneurs",
+      "de": "Container-Engines erstellen",
+      "es": "Crear motores de contenedores",
+      "it": "Crea motori container"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.containers.update",
+    "name": "Update container engines",
+    "name_translations": {
+      "en": "Update container engines",
+      "fr": "Modifier les moteurs de conteneurs",
+      "de": "Container-Engines aktualisieren",
+      "es": "Actualizar motores de contenedores",
+      "it": "Aggiorna motori container"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.containers.delete",
+    "name": "Delete container engines",
+    "name_translations": {
+      "en": "Delete container engines",
+      "fr": "Supprimer les moteurs de conteneurs",
+      "de": "Container-Engines löschen",
+      "es": "Eliminar motores de contenedores",
+      "it": "Elimina motori container"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.containers.manage",
+    "name": "Manage containers",
+    "name_translations": {
+      "en": "Manage containers (start/stop/pull)",
+      "fr": "Gérer les conteneurs (démarrer/arrêter/pull)",
+      "de": "Container verwalten (starten/stoppen/pull)",
+      "es": "Gestionar contenedores (iniciar/detener/pull)",
+      "it": "Gestisci container (avvia/arresta/pull)"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.containers.exec",
+    "name": "Execute commands in containers",
+    "name_translations": {
+      "en": "Execute commands in containers",
+      "fr": "Exécuter des commandes dans les conteneurs",
+      "de": "Befehle in Containern ausführen",
+      "es": "Ejecutar comandos en contenedores",
+      "it": "Esegui comandi nei container"
+    },
+    "category": "csd-pilote"
+  }
+]

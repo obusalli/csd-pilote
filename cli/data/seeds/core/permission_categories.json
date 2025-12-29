@@ -1,0 +1,14 @@
+[
+  {
+    "name": "csd-pilote",
+    "name_translations": {
+      "en": "Infrastructure Management",
+      "fr": "Gestion d'Infrastructure",
+      "de": "Infrastrukturverwaltung",
+      "es": "Gestión de Infraestructura",
+      "it": "Gestione Infrastruttura"
+    },
+    "note": "Permissions for the CSD Pilote module (Kubernetes, Libvirt, Container Engines)",
+    "sort_order": 200
+  }
+]

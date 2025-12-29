@@ -1,0 +1,54 @@
+# CSD-Pilote Configuration
+
+# Shared configuration (can be overridden by component sections)
+common:
+  database:
+    url: "postgres://postgres@localhost:5432/csd_pilote?sslmode=prefer"
+  csd-core:
+    url: "http://127.0.0.1:9090"
+    graphql-endpoint: "/core/api/latest/query"
+  logging:
+    level: debug
+
+# Backend configuration
+backend:
+  server:
+    host: "0.0.0.0"
+    port: "9093"
+  csd-core:
+    service-token: "K63c-nrsJA0ig9D3eguubLqL8Ro2NpIgsyi4HrzbmRU"
+  jwt:
+    secret: "dev-secret-key-change-in-production-12345"
+    issuer: "csd-core"
+    expiry-hours: 24
+  cors:
+    allowed-origins:
+      - "http://127.0.0.1:4040"
+      - "http://127.0.0.1:4043"
+      - "http://localhost:4040"
+      - "http://localhost:4043"
+    allowed-methods:
+      - "GET"
+      - "POST"
+      - "OPTIONS"
+    allowed-headers:
+      - "Content-Type"
+      - "Authorization"
+      - "X-Requested-With"
+  logging:
+    file:
+      enabled: true
+      path: "logs/csd-pilote.log"
+      max-size-mb: 50
+
+# Frontend configuration (Module Federation remote)
+frontend:
+  url: "http://127.0.0.1:4043"
+  remote-entry-path: "/assets/remoteEntry.js"
+  route-path: "/pilote"
+
+# CLI configuration
+cli:
+  seeds:
+    core-path: "cli/data/seeds/core"
+    app-path: "cli/data/seeds/app"

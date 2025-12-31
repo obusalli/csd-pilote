@@ -4,11 +4,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"os"
 	"time"
 
 	"csd-pilote/backend/modules/platform/config"
 	"csd-pilote/backend/modules/platform/csd-core"
+	"csd-pilote/backend/modules/platform/logger"
 	"csd-pilote/backend/modules/platform/server"
 
 	// Import modules to register their GraphQL operations
@@ -41,7 +44,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
-	log.Printf("Configuration loaded")
+
+	// Initialize logger
+	logLevel := logger.INFO
+	if cfg.Logging.Level != "" {
+		logLevel = logger.ParseLevel(cfg.Logging.Level)
+	}
+	outputs := []io.Writer{os.Stdout}
+	appLogger := logger.NewLogger(logLevel, outputs, nil, false)
+	logger.SetGlobalLogger(appLogger)
+
+	logger.Info("Configuration loaded (log level: %s)", cfg.Logging.Level)
 
 	// Register with csd-core
 	if cfg.CSDCore.ServiceToken != "" {

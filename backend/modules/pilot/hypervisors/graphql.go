@@ -66,6 +66,11 @@ func init() {
 		func(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}) {
 			handleDeployHypervisor(ctx, w, variables, service)
 		})
+
+	graphql.RegisterMutation("bulkDeleteHypervisors", "Delete multiple hypervisors", "csd-pilote.hypervisors.delete",
+		func(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}) {
+			handleBulkDeleteHypervisors(ctx, w, variables, service)
+		})
 }
 
 func handleListHypervisors(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
@@ -151,6 +156,8 @@ func handleCreateHypervisor(ctx context.Context, w http.ResponseWriter, variable
 		return
 	}
 
+	token, _ := middleware.GetTokenFromContext(ctx)
+
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
@@ -193,6 +200,18 @@ func handleCreateHypervisor(ctx context.Context, w http.ResponseWriter, variable
 		return
 	}
 
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "CREATE_HYPERVISOR",
+		ResourceType: "hypervisor",
+		ResourceID:   hypervisor.ID.String(),
+		Details: map[string]interface{}{
+			"name":   hypervisor.Name,
+			"mode":   hypervisor.Mode,
+			"driver": hypervisor.Driver,
+		},
+	})
+
 	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
 		"createHypervisor": hypervisor,
 	}))
@@ -204,6 +223,8 @@ func handleUpdateHypervisor(ctx context.Context, w http.ResponseWriter, variable
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
 		return
 	}
+
+	token, _ := middleware.GetTokenFromContext(ctx)
 
 	idStr, ok := variables["id"].(string)
 	if !ok {
@@ -246,6 +267,16 @@ func handleUpdateHypervisor(ctx context.Context, w http.ResponseWriter, variable
 		return
 	}
 
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "UPDATE_HYPERVISOR",
+		ResourceType: "hypervisor",
+		ResourceID:   hypervisor.ID.String(),
+		Details: map[string]interface{}{
+			"name": hypervisor.Name,
+		},
+	})
+
 	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
 		"updateHypervisor": hypervisor,
 	}))
@@ -257,6 +288,8 @@ func handleDeleteHypervisor(ctx context.Context, w http.ResponseWriter, variable
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
 		return
 	}
+
+	token, _ := middleware.GetTokenFromContext(ctx)
 
 	idStr, ok := variables["id"].(string)
 	if !ok {
@@ -270,10 +303,27 @@ func handleDeleteHypervisor(ctx context.Context, w http.ResponseWriter, variable
 		return
 	}
 
+	// Get hypervisor info before deletion for audit
+	hypervisor, _ := service.Get(ctx, tenantID, id)
+	hypervisorName := ""
+	if hypervisor != nil {
+		hypervisorName = hypervisor.Name
+	}
+
 	if err := service.Delete(ctx, tenantID, id); err != nil {
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
 		return
 	}
+
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "DELETE_HYPERVISOR",
+		ResourceType: "hypervisor",
+		ResourceID:   id.String(),
+		Details: map[string]interface{}{
+			"name": hypervisorName,
+		},
+	})
 
 	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
 		"deleteHypervisor": true,
@@ -419,6 +469,8 @@ func handleDeployHypervisor(ctx context.Context, w http.ResponseWriter, variable
 		return
 	}
 
+	token, _ := middleware.GetTokenFromContext(ctx)
+
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
@@ -458,7 +510,74 @@ func handleDeployHypervisor(ctx context.Context, w http.ResponseWriter, variable
 		return
 	}
 
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "DEPLOY_HYPERVISOR",
+		ResourceType: "hypervisor",
+		ResourceID:   hypervisor.ID.String(),
+		Details: map[string]interface{}{
+			"name":    hypervisor.Name,
+			"driver":  hypervisor.Driver,
+			"agentId": input.AgentID,
+		},
+	})
+
 	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
 		"deployHypervisor": hypervisor,
+	}))
+}
+
+func handleBulkDeleteHypervisors(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
+	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
+	if !ok {
+		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		return
+	}
+
+	token, _ := middleware.GetTokenFromContext(ctx)
+
+	idsRaw, ok := variables["ids"].([]interface{})
+	if !ok || len(idsRaw) == 0 {
+		json.NewEncoder(w).Encode(graphql.NewErrorResponse("ids is required"))
+		return
+	}
+
+	ids := make([]uuid.UUID, 0, len(idsRaw))
+	for _, idRaw := range idsRaw {
+		idStr, ok := idRaw.(string)
+		if !ok {
+			continue
+		}
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			continue
+		}
+		ids = append(ids, id)
+	}
+
+	if len(ids) == 0 {
+		json.NewEncoder(w).Encode(graphql.NewErrorResponse("no valid ids provided"))
+		return
+	}
+
+	deleted, err := service.BulkDelete(ctx, tenantID, ids)
+	if err != nil {
+		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		return
+	}
+
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "BULK_DELETE_HYPERVISORS",
+		ResourceType: "hypervisor",
+		ResourceID:   "",
+		Details: map[string]interface{}{
+			"count": deleted,
+			"ids":   ids,
+		},
+	})
+
+	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+		"bulkDeleteHypervisors": deleted,
 	}))
 }

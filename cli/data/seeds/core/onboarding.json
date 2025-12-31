@@ -1,0 +1,189 @@
+[
+  {
+    "code": "pilote-first-cluster",
+    "service_slug": "csd-pilote",
+    "name": "Create Your First Kubernetes Cluster",
+    "name_translations": {
+      "en": "Create Your First Kubernetes Cluster",
+      "fr": "Créer votre premier cluster Kubernetes",
+      "de": "Erstellen Sie Ihren ersten Kubernetes-Cluster",
+      "es": "Cree su primer clúster de Kubernetes",
+      "it": "Crea il tuo primo cluster Kubernetes"
+    },
+    "description": "Learn how to connect or deploy a Kubernetes cluster",
+    "description_translations": {
+      "en": "Learn how to connect or deploy a Kubernetes cluster",
+      "fr": "Apprenez à connecter ou déployer un cluster Kubernetes",
+      "de": "Erfahren Sie, wie Sie einen Kubernetes-Cluster verbinden oder bereitstellen",
+      "es": "Aprenda a conectar o implementar un clúster de Kubernetes",
+      "it": "Scopri come connettere o distribuire un cluster Kubernetes"
+    },
+    "trigger_type": "USER_ACTION",
+    "trigger_config": {
+      "path": "/pilote/kubernetes/clusters"
+    },
+    "steps": [
+      {
+        "step_key": "welcome",
+        "placement": "center",
+        "title": "Welcome to Kubernetes Management",
+        "title_translations": {
+          "en": "Welcome to Kubernetes Management",
+          "fr": "Bienvenue dans la gestion Kubernetes",
+          "de": "Willkommen bei der Kubernetes-Verwaltung",
+          "es": "Bienvenido a la gestión de Kubernetes",
+          "it": "Benvenuto nella gestione Kubernetes"
+        },
+        "content": "This page lets you manage your Kubernetes clusters. You can either connect to existing clusters or deploy new ones.",
+        "content_translations": {
+          "en": "This page lets you manage your Kubernetes clusters. You can either connect to existing clusters or deploy new ones.",
+          "fr": "Cette page vous permet de gérer vos clusters Kubernetes. Vous pouvez soit vous connecter à des clusters existants, soit en déployer de nouveaux.",
+          "de": "Auf dieser Seite können Sie Ihre Kubernetes-Cluster verwalten. Sie können entweder eine Verbindung zu vorhandenen Clustern herstellen oder neue bereitstellen.",
+          "es": "Esta página le permite administrar sus clústeres de Kubernetes. Puede conectarse a clústeres existentes o implementar nuevos.",
+          "it": "Questa pagina ti permette di gestire i tuoi cluster Kubernetes. Puoi connetterti a cluster esistenti o distribuirne di nuovi."
+        }
+      },
+      {
+        "step_key": "add-button",
+        "target_selector": "[data-tour='add-cluster-button']",
+        "placement": "bottom",
+        "title": "Add a Cluster",
+        "title_translations": {
+          "en": "Add a Cluster",
+          "fr": "Ajouter un cluster",
+          "de": "Cluster hinzufügen",
+          "es": "Agregar un clúster",
+          "it": "Aggiungi un cluster"
+        },
+        "content": "Click here to add a new cluster. You'll be able to choose between connecting to an existing cluster or deploying a new one.",
+        "content_translations": {
+          "en": "Click here to add a new cluster. You'll be able to choose between connecting to an existing cluster or deploying a new one.",
+          "fr": "Cliquez ici pour ajouter un nouveau cluster. Vous pourrez choisir entre vous connecter à un cluster existant ou en déployer un nouveau.",
+          "de": "Klicken Sie hier, um einen neuen Cluster hinzuzufügen. Sie können zwischen dem Verbinden mit einem vorhandenen Cluster oder dem Bereitstellen eines neuen wählen.",
+          "es": "Haga clic aquí para agregar un nuevo clúster. Podrá elegir entre conectarse a un clúster existente o implementar uno nuevo.",
+          "it": "Clicca qui per aggiungere un nuovo cluster. Potrai scegliere tra connetterti a un cluster esistente o distribuirne uno nuovo."
+        }
+      }
+    ]
+  },
+  {
+    "code": "pilote-first-hypervisor",
+    "service_slug": "csd-pilote",
+    "name": "Create Your First Hypervisor",
+    "name_translations": {
+      "en": "Create Your First Hypervisor",
+      "fr": "Créer votre premier hyperviseur",
+      "de": "Erstellen Sie Ihren ersten Hypervisor",
+      "es": "Cree su primer hipervisor",
+      "it": "Crea il tuo primo hypervisor"
+    },
+    "description": "Learn how to connect or deploy a Libvirt hypervisor",
+    "trigger_type": "USER_ACTION",
+    "trigger_config": {
+      "path": "/pilote/libvirt/hypervisors"
+    },
+    "steps": [
+      {
+        "step_key": "welcome",
+        "placement": "center",
+        "title": "Welcome to Hypervisor Management",
+        "title_translations": {
+          "en": "Welcome to Hypervisor Management",
+          "fr": "Bienvenue dans la gestion des hyperviseurs",
+          "de": "Willkommen bei der Hypervisor-Verwaltung",
+          "es": "Bienvenido a la gestión de hipervisores",
+          "it": "Benvenuto nella gestione degli hypervisor"
+        },
+        "content": "This page lets you manage your Libvirt hypervisors for virtualization. You can connect to existing hypervisors or deploy Libvirt on new hosts.",
+        "content_translations": {
+          "en": "This page lets you manage your Libvirt hypervisors for virtualization. You can connect to existing hypervisors or deploy Libvirt on new hosts.",
+          "fr": "Cette page vous permet de gérer vos hyperviseurs Libvirt pour la virtualisation. Vous pouvez vous connecter à des hyperviseurs existants ou déployer Libvirt sur de nouveaux hôtes.",
+          "de": "Auf dieser Seite können Sie Ihre Libvirt-Hypervisoren für die Virtualisierung verwalten. Sie können eine Verbindung zu vorhandenen Hypervisoren herstellen oder Libvirt auf neuen Hosts bereitstellen.",
+          "es": "Esta página le permite administrar sus hipervisores Libvirt para virtualización. Puede conectarse a hipervisores existentes o implementar Libvirt en nuevos hosts.",
+          "it": "Questa pagina ti permette di gestire i tuoi hypervisor Libvirt per la virtualizzazione. Puoi connetterti a hypervisor esistenti o distribuire Libvirt su nuovi host."
+        }
+      },
+      {
+        "step_key": "add-button",
+        "target_selector": "[data-tour='add-hypervisor-button']",
+        "placement": "bottom",
+        "title": "Add a Hypervisor",
+        "title_translations": {
+          "en": "Add a Hypervisor",
+          "fr": "Ajouter un hyperviseur",
+          "de": "Hypervisor hinzufügen",
+          "es": "Agregar un hipervisor",
+          "it": "Aggiungi un hypervisor"
+        },
+        "content": "Click here to add a new hypervisor. You'll be able to connect to an existing Libvirt instance or deploy Libvirt on a new host.",
+        "content_translations": {
+          "en": "Click here to add a new hypervisor. You'll be able to connect to an existing Libvirt instance or deploy Libvirt on a new host.",
+          "fr": "Cliquez ici pour ajouter un nouvel hyperviseur. Vous pourrez vous connecter à une instance Libvirt existante ou déployer Libvirt sur un nouvel hôte.",
+          "de": "Klicken Sie hier, um einen neuen Hypervisor hinzuzufügen. Sie können eine Verbindung zu einer vorhandenen Libvirt-Instanz herstellen oder Libvirt auf einem neuen Host bereitstellen.",
+          "es": "Haga clic aquí para agregar un nuevo hipervisor. Podrá conectarse a una instancia de Libvirt existente o implementar Libvirt en un nuevo host.",
+          "it": "Clicca qui per aggiungere un nuovo hypervisor. Potrai connetterti a un'istanza Libvirt esistente o distribuire Libvirt su un nuovo host."
+        }
+      }
+    ]
+  },
+  {
+    "code": "pilote-first-container-engine",
+    "service_slug": "csd-pilote",
+    "name": "Create Your First Container Engine",
+    "name_translations": {
+      "en": "Create Your First Container Engine",
+      "fr": "Créer votre premier moteur de conteneurs",
+      "de": "Erstellen Sie Ihre erste Container-Engine",
+      "es": "Cree su primer motor de contenedores",
+      "it": "Crea il tuo primo motore container"
+    },
+    "description": "Learn how to connect to Docker or Podman engines",
+    "trigger_type": "USER_ACTION",
+    "trigger_config": {
+      "path": "/pilote/containers/engines"
+    },
+    "steps": [
+      {
+        "step_key": "welcome",
+        "placement": "center",
+        "title": "Welcome to Container Engine Management",
+        "title_translations": {
+          "en": "Welcome to Container Engine Management",
+          "fr": "Bienvenue dans la gestion des moteurs de conteneurs",
+          "de": "Willkommen bei der Container-Engine-Verwaltung",
+          "es": "Bienvenido a la gestión de motores de contenedores",
+          "it": "Benvenuto nella gestione dei motori container"
+        },
+        "content": "This page lets you manage Docker and Podman container engines. You can monitor containers, images, and manage your containerized workloads.",
+        "content_translations": {
+          "en": "This page lets you manage Docker and Podman container engines. You can monitor containers, images, and manage your containerized workloads.",
+          "fr": "Cette page vous permet de gérer les moteurs de conteneurs Docker et Podman. Vous pouvez surveiller les conteneurs, les images et gérer vos charges de travail conteneurisées.",
+          "de": "Auf dieser Seite können Sie Docker- und Podman-Container-Engines verwalten. Sie können Container und Images überwachen und Ihre containerisierten Workloads verwalten.",
+          "es": "Esta página le permite administrar los motores de contenedores Docker y Podman. Puede monitorear contenedores, imágenes y administrar sus cargas de trabajo en contenedores.",
+          "it": "Questa pagina ti permette di gestire i motori container Docker e Podman. Puoi monitorare container, immagini e gestire i tuoi carichi di lavoro containerizzati."
+        }
+      },
+      {
+        "step_key": "add-button",
+        "target_selector": "[data-tour='add-engine-button']",
+        "placement": "bottom",
+        "title": "Add a Container Engine",
+        "title_translations": {
+          "en": "Add a Container Engine",
+          "fr": "Ajouter un moteur de conteneurs",
+          "de": "Container-Engine hinzufügen",
+          "es": "Agregar un motor de contenedores",
+          "it": "Aggiungi un motore container"
+        },
+        "content": "Click here to add a new container engine. You can connect to Docker or Podman instances running on your servers.",
+        "content_translations": {
+          "en": "Click here to add a new container engine. You can connect to Docker or Podman instances running on your servers.",
+          "fr": "Cliquez ici pour ajouter un nouveau moteur de conteneurs. Vous pouvez vous connecter à des instances Docker ou Podman s'exécutant sur vos serveurs.",
+          "de": "Klicken Sie hier, um eine neue Container-Engine hinzuzufügen. Sie können eine Verbindung zu Docker- oder Podman-Instanzen herstellen, die auf Ihren Servern ausgeführt werden.",
+          "es": "Haga clic aquí para agregar un nuevo motor de contenedores. Puede conectarse a instancias de Docker o Podman que se ejecutan en sus servidores.",
+          "it": "Clicca qui per aggiungere un nuovo motore container. Puoi connetterti a istanze Docker o Podman in esecuzione sui tuoi server."
+        }
+      }
+    ]
+  }
+]

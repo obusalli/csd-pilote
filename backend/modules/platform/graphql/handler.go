@@ -8,6 +8,7 @@ import (
 
 	"csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/middleware"
+	"csd-pilote/backend/modules/platform/ratelimit"
 )
 
 // Handler handles GraphQL requests
@@ -67,6 +68,20 @@ func (h *Handler) handleLocal(w http.ResponseWriter, r *http.Request, opType, op
 
 	if !ok {
 		return false
+	}
+
+	// Check rate limit for mutations
+	if opType == "mutation" {
+		if err := ratelimit.CheckRateLimit(r, opName); err != nil {
+			if rlErr, ok := err.(*ratelimit.RateLimitError); ok {
+				w.WriteHeader(http.StatusTooManyRequests)
+				json.NewEncoder(w).Encode(NewErrorResponseWithCode(
+					"RATE_LIMIT_EXCEEDED",
+					"Too many requests for "+rlErr.Operation+". Please try again later.",
+				))
+				return true
+			}
+		}
 	}
 
 	// Check permission if required

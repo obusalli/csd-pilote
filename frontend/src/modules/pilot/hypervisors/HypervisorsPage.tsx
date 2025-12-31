@@ -14,6 +14,7 @@ import {
   CSDToggleButtonGroup,
   CSDToggleButton,
   CSDAlert,
+  CSDBox,
   StatCardData,
 } from 'csd_core/UI';
 import {
@@ -129,7 +130,11 @@ export const HypervisorsPage: React.FC = () => {
   // Dialog state
   const [formOpen, setFormOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [editingHypervisor, setEditingHypervisor] = useState<Hypervisor | null>(null);
+
+  // Selection state for bulk actions
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Form mode
   const [formMode, setFormMode] = useState<'CONNECT' | 'DEPLOY'>('CONNECT');
@@ -411,6 +416,26 @@ export const HypervisorsPage: React.FC = () => {
     }
   };
 
+  // Selection handlers
+  const handleSelectionChange = (ids: Set<string>) => {
+    setSelectedIds(ids);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    try {
+      await request(
+        `mutation BulkDeleteHypervisors($ids: [ID!]!) { bulkDeleteHypervisors(ids: $ids) }`,
+        { ids: Array.from(selectedIds) }
+      );
+      setBulkDeleteOpen(false);
+      setSelectedIds(new Set());
+      await loadHypervisors();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('hypervisors.error_bulk_delete'));
+    }
+  };
+
   // Stat cards
   const statCards: StatCardData[] = [
     { title: t('hypervisors.total'), value: String(stats.total), icon: 'server', color: 'primary' },
@@ -617,17 +642,30 @@ export const HypervisorsPage: React.FC = () => {
 
   // Delete dialog
   const deleteDialog = (
-    <CSDConfirmDialog
-      id="hypervisors-delete-dialog"
-      open={deleteOpen}
-      onClose={() => setDeleteOpen(false)}
-      onConfirm={handleConfirmDelete}
-      title={t('hypervisors.delete_hypervisor')}
-      message={t('hypervisors.delete_confirmation', { name: editingHypervisor?.name || '' })}
-      confirmLabel={t('common.delete')}
-      cancelLabel={t('common.cancel')}
-      severity="error"
-    />
+    <>
+      <CSDConfirmDialog
+        id="hypervisors-delete-dialog"
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        onConfirm={handleConfirmDelete}
+        title={t('hypervisors.delete_hypervisor')}
+        message={t('hypervisors.delete_confirmation', { name: editingHypervisor?.name || '' })}
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        severity="error"
+      />
+      <CSDConfirmDialog
+        id="hypervisors-bulk-delete-dialog"
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        onConfirm={handleBulkDelete}
+        title={t('hypervisors.bulk_delete')}
+        message={t('hypervisors.bulk_delete_confirmation', { count: selectedIds.size })}
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        severity="error"
+      />
+    </>
   );
 
   return (
@@ -641,14 +679,27 @@ export const HypervisorsPage: React.FC = () => {
       autoSave={false}
       useServerFiltering={true}
       actions={
-        <CSDActionButton
-          id="hypervisors-add-button"
-          variant="contained"
-          startIcon={<CSDIcon name="add" />}
-          onClick={() => handleOpen(null)}
-        >
-          {t('hypervisors.add_hypervisor')}
-        </CSDActionButton>
+        <CSDBox sx={{ display: 'flex', gap: 1 }}>
+          {selectedIds.size > 0 && (
+            <CSDActionButton
+              id="hypervisors-bulk-delete-button"
+              variant="outlined"
+              color="error"
+              startIcon={<CSDIcon name="delete" />}
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              {t('common.delete_selected', { count: selectedIds.size })}
+            </CSDActionButton>
+          )}
+          <CSDActionButton
+            id="hypervisors-add-button"
+            variant="contained"
+            startIcon={<CSDIcon name="add" />}
+            onClick={() => handleOpen(null)}
+          >
+            {t('hypervisors.add_hypervisor')}
+          </CSDActionButton>
+        </CSDBox>
       }
     >
       {({ filteredData, filterBar }) => (
@@ -671,6 +722,9 @@ export const HypervisorsPage: React.FC = () => {
             totalCount={totalCount}
             keyField="id"
             hoverable
+            selectable
+            selectedIds={selectedIds}
+            onSelectionChange={handleSelectionChange}
           />
         </CSDCrudPage>
       )}

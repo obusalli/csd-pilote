@@ -1,0 +1,365 @@
+[
+  {
+    "name": "Web Server",
+    "name_translations": {
+      "en": "Web Server",
+      "fr": "Serveur Web",
+      "de": "Webserver",
+      "es": "Servidor Web",
+      "it": "Server Web"
+    },
+    "description": "Standard web server configuration with HTTP/HTTPS access",
+    "description_translations": {
+      "en": "Standard web server configuration with HTTP/HTTPS access, SSH for administration, and ICMP for diagnostics",
+      "fr": "Configuration standard pour serveur web avec accès HTTP/HTTPS, SSH pour l'administration et ICMP pour les diagnostics",
+      "de": "Standard-Webserver-Konfiguration mit HTTP/HTTPS-Zugriff, SSH für Administration und ICMP für Diagnose",
+      "es": "Configuración estándar de servidor web con acceso HTTP/HTTPS, SSH para administración e ICMP para diagnósticos",
+      "it": "Configurazione standard server web con accesso HTTP/HTTPS, SSH per amministrazione e ICMP per diagnostica"
+    },
+    "category": "server",
+    "is_built_in": true,
+    "rules_json": [
+      {
+        "name": "Allow loopback",
+        "chain": "input",
+        "protocol": "all",
+        "action": "accept",
+        "source_ip": "127.0.0.1",
+        "comment": "Accept all traffic on loopback interface"
+      },
+      {
+        "name": "Allow established connections",
+        "chain": "input",
+        "protocol": "all",
+        "action": "accept",
+        "rule_expr": "ct state established,related accept",
+        "comment": "Accept established and related connections"
+      },
+      {
+        "name": "Allow HTTP",
+        "chain": "input",
+        "protocol": "tcp",
+        "dest_port": "80",
+        "action": "accept",
+        "comment": "Allow HTTP traffic"
+      },
+      {
+        "name": "Allow HTTPS",
+        "chain": "input",
+        "protocol": "tcp",
+        "dest_port": "443",
+        "action": "accept",
+        "comment": "Allow HTTPS traffic"
+      },
+      {
+        "name": "Allow SSH",
+        "chain": "input",
+        "protocol": "tcp",
+        "dest_port": "22",
+        "action": "accept",
+        "comment": "Allow SSH for administration"
+      },
+      {
+        "name": "Allow ICMP",
+        "chain": "input",
+        "protocol": "icmp",
+        "action": "accept",
+        "comment": "Allow ICMP for diagnostics"
+      },
+      {
+        "name": "Drop all other input",
+        "chain": "input",
+        "protocol": "all",
+        "action": "drop",
+        "priority": 999,
+        "comment": "Default deny policy"
+      }
+    ]
+  },
+  {
+    "name": "Database Server",
+    "name_translations": {
+      "en": "Database Server",
+      "fr": "Serveur de base de données",
+      "de": "Datenbankserver",
+      "es": "Servidor de base de datos",
+      "it": "Server database"
+    },
+    "description": "Database server with restricted access from internal networks only",
+    "description_translations": {
+      "en": "Database server with restricted access from internal networks only, supporting PostgreSQL and MySQL",
+      "fr": "Serveur de base de données avec accès restreint depuis les réseaux internes uniquement, supportant PostgreSQL et MySQL",
+      "de": "Datenbankserver mit eingeschränktem Zugriff nur aus internen Netzwerken, unterstützt PostgreSQL und MySQL",
+      "es": "Servidor de base de datos con acceso restringido solo desde redes internas, compatible con PostgreSQL y MySQL",
+      "it": "Server database con accesso limitato solo dalle reti interne, supporta PostgreSQL e MySQL"
+    },
+    "category": "server",
+    "is_built_in": true,
+    "rules_json": [
+      {
+        "name": "Allow loopback",
+        "chain": "input",
+        "protocol": "all",
+        "action": "accept",
+        "source_ip": "127.0.0.1",
+        "comment": "Accept all traffic on loopback interface"
+      },
+      {
+        "name": "Allow established connections",
+        "chain": "input",
+        "protocol": "all",
+        "action": "accept",
+        "rule_expr": "ct state established,related accept",
+        "comment": "Accept established and related connections"
+      },
+      {
+        "name": "Allow PostgreSQL from 10.0.0.0/8",
+        "chain": "input",
+        "protocol": "tcp",
+        "source_ip": "10.0.0.0/8",
+        "dest_port": "5432",
+        "action": "accept",
+        "comment": "Allow PostgreSQL from internal network"
+      },
+      {
+        "name": "Allow PostgreSQL from 172.16.0.0/12",
+        "chain": "input",
+        "protocol": "tcp",
+        "source_ip": "172.16.0.0/12",
+        "dest_port": "5432",
+        "action": "accept",
+        "comment": "Allow PostgreSQL from internal network"
+      },
+      {
+        "name": "Allow PostgreSQL from 192.168.0.0/16",
+        "chain": "input",
+        "protocol": "tcp",
+        "source_ip": "192.168.0.0/16",
+        "dest_port": "5432",
+        "action": "accept",
+        "comment": "Allow PostgreSQL from internal network"
+      },
+      {
+        "name": "Allow MySQL from 10.0.0.0/8",
+        "chain": "input",
+        "protocol": "tcp",
+        "source_ip": "10.0.0.0/8",
+        "dest_port": "3306",
+        "action": "accept",
+        "comment": "Allow MySQL from internal network"
+      },
+      {
+        "name": "Allow SSH from 10.0.0.0/8",
+        "chain": "input",
+        "protocol": "tcp",
+        "source_ip": "10.0.0.0/8",
+        "dest_port": "22",
+        "action": "accept",
+        "comment": "Allow SSH from internal network"
+      },
+      {
+        "name": "Drop all other input",
+        "chain": "input",
+        "protocol": "all",
+        "action": "drop",
+        "priority": 999,
+        "comment": "Default deny policy"
+      }
+    ]
+  },
+  {
+    "name": "Minimal Bastion",
+    "name_translations": {
+      "en": "Minimal Bastion",
+      "fr": "Bastion minimal",
+      "de": "Minimaler Bastion",
+      "es": "Bastión mínimo",
+      "it": "Bastion minimo"
+    },
+    "description": "Minimal bastion/jump host with SSH only access",
+    "description_translations": {
+      "en": "Minimal bastion/jump host configuration allowing only SSH inbound and outbound connections",
+      "fr": "Configuration minimale de bastion/jump host autorisant uniquement les connexions SSH entrantes et sortantes",
+      "de": "Minimale Bastion/Jump-Host-Konfiguration, die nur eingehende und ausgehende SSH-Verbindungen erlaubt",
+      "es": "Configuración mínima de bastión/jump host que permite solo conexiones SSH entrantes y salientes",
+      "it": "Configurazione minima bastion/jump host che permette solo connessioni SSH in entrata e uscita"
+    },
+    "category": "security",
+    "is_built_in": true,
+    "rules_json": [
+      {
+        "name": "Allow loopback",
+        "chain": "input",
+        "protocol": "all",
+        "action": "accept",
+        "source_ip": "127.0.0.1",
+        "comment": "Accept all traffic on loopback interface"
+      },
+      {
+        "name": "Allow established connections",
+        "chain": "input",
+        "protocol": "all",
+        "action": "accept",
+        "rule_expr": "ct state established,related accept",
+        "comment": "Accept established and related connections"
+      },
+      {
+        "name": "Allow SSH inbound",
+        "chain": "input",
+        "protocol": "tcp",
+        "dest_port": "22",
+        "action": "accept",
+        "comment": "Allow SSH connections"
+      },
+      {
+        "name": "Drop all other input",
+        "chain": "input",
+        "protocol": "all",
+        "action": "drop",
+        "priority": 999,
+        "comment": "Default deny policy"
+      },
+      {
+        "name": "Allow SSH outbound",
+        "chain": "output",
+        "protocol": "tcp",
+        "dest_port": "22",
+        "action": "accept",
+        "comment": "Allow outgoing SSH connections"
+      },
+      {
+        "name": "Allow DNS outbound",
+        "chain": "output",
+        "protocol": "udp",
+        "dest_port": "53",
+        "action": "accept",
+        "comment": "Allow DNS resolution"
+      },
+      {
+        "name": "Allow established outbound",
+        "chain": "output",
+        "protocol": "all",
+        "action": "accept",
+        "rule_expr": "ct state established,related accept",
+        "comment": "Accept established and related connections"
+      }
+    ]
+  },
+  {
+    "name": "Gateway",
+    "name_translations": {
+      "en": "Gateway",
+      "fr": "Passerelle",
+      "de": "Gateway",
+      "es": "Puerta de enlace",
+      "it": "Gateway"
+    },
+    "description": "Network gateway/router with NAT, DNS, and DHCP services",
+    "description_translations": {
+      "en": "Network gateway/router configuration with NAT/masquerading, DNS forwarding, and DHCP services",
+      "fr": "Configuration de passerelle/routeur réseau avec NAT/masquerading, transfert DNS et services DHCP",
+      "de": "Netzwerk-Gateway/Router-Konfiguration mit NAT/Masquerading, DNS-Weiterleitung und DHCP-Diensten",
+      "es": "Configuración de puerta de enlace/router de red con NAT/masquerading, reenvío DNS y servicios DHCP",
+      "it": "Configurazione gateway/router di rete con NAT/masquerading, inoltro DNS e servizi DHCP"
+    },
+    "category": "network",
+    "is_built_in": true,
+    "rules_json": [
+      {
+        "name": "Allow loopback",
+        "chain": "input",
+        "protocol": "all",
+        "action": "accept",
+        "source_ip": "127.0.0.1",
+        "comment": "Accept all traffic on loopback interface"
+      },
+      {
+        "name": "Allow established connections",
+        "chain": "input",
+        "protocol": "all",
+        "action": "accept",
+        "rule_expr": "ct state established,related accept",
+        "comment": "Accept established and related connections"
+      },
+      {
+        "name": "Allow SSH",
+        "chain": "input",
+        "protocol": "tcp",
+        "dest_port": "22",
+        "action": "accept",
+        "comment": "Allow SSH for administration"
+      },
+      {
+        "name": "Allow DNS UDP",
+        "chain": "input",
+        "protocol": "udp",
+        "dest_port": "53",
+        "action": "accept",
+        "comment": "Allow DNS queries"
+      },
+      {
+        "name": "Allow DNS TCP",
+        "chain": "input",
+        "protocol": "tcp",
+        "dest_port": "53",
+        "action": "accept",
+        "comment": "Allow DNS queries (TCP)"
+      },
+      {
+        "name": "Allow DHCP",
+        "chain": "input",
+        "protocol": "udp",
+        "dest_port": "67-68",
+        "action": "accept",
+        "comment": "Allow DHCP requests"
+      },
+      {
+        "name": "Allow ICMP",
+        "chain": "input",
+        "protocol": "icmp",
+        "action": "accept",
+        "comment": "Allow ICMP for diagnostics"
+      },
+      {
+        "name": "Drop all other input",
+        "chain": "input",
+        "protocol": "all",
+        "action": "drop",
+        "priority": 999,
+        "comment": "Default deny policy"
+      },
+      {
+        "name": "Allow forwarding from LAN",
+        "chain": "forward",
+        "protocol": "all",
+        "source_ip": "192.168.0.0/16",
+        "action": "accept",
+        "comment": "Allow forwarding from LAN"
+      },
+      {
+        "name": "Allow forwarding from 10.0.0.0/8",
+        "chain": "forward",
+        "protocol": "all",
+        "source_ip": "10.0.0.0/8",
+        "action": "accept",
+        "comment": "Allow forwarding from internal network"
+      },
+      {
+        "name": "Allow established forwarding",
+        "chain": "forward",
+        "protocol": "all",
+        "action": "accept",
+        "rule_expr": "ct state established,related accept",
+        "comment": "Allow established forwarded connections"
+      },
+      {
+        "name": "NAT masquerade",
+        "chain": "postrouting",
+        "protocol": "all",
+        "action": "masquerade",
+        "source_ip": "192.168.0.0/16",
+        "comment": "NAT for LAN traffic"
+      }
+    ]
+  }
+]

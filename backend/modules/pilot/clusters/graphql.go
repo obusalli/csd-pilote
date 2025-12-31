@@ -71,6 +71,11 @@ func init() {
 		func(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}) {
 			handleDeployCluster(ctx, w, variables, service)
 		})
+
+	graphql.RegisterMutation("bulkDeleteClusters", "Delete multiple clusters", "csd-pilote.clusters.delete",
+		func(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}) {
+			handleBulkDeleteClusters(ctx, w, variables, service)
+		})
 }
 
 func handleListClusters(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
@@ -156,6 +161,8 @@ func handleCreateCluster(ctx context.Context, w http.ResponseWriter, variables m
 		return
 	}
 
+	token, _ := middleware.GetTokenFromContext(ctx)
+
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
@@ -198,6 +205,18 @@ func handleCreateCluster(ctx context.Context, w http.ResponseWriter, variables m
 		return
 	}
 
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "CREATE_CLUSTER",
+		ResourceType: "cluster",
+		ResourceID:   cluster.ID.String(),
+		Details: map[string]interface{}{
+			"name":         cluster.Name,
+			"mode":         cluster.Mode,
+			"distribution": cluster.Distribution,
+		},
+	})
+
 	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
 		"createCluster": cluster,
 	}))
@@ -209,6 +228,8 @@ func handleUpdateCluster(ctx context.Context, w http.ResponseWriter, variables m
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
 		return
 	}
+
+	token, _ := middleware.GetTokenFromContext(ctx)
 
 	idStr, ok := variables["id"].(string)
 	if !ok {
@@ -251,6 +272,16 @@ func handleUpdateCluster(ctx context.Context, w http.ResponseWriter, variables m
 		return
 	}
 
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "UPDATE_CLUSTER",
+		ResourceType: "cluster",
+		ResourceID:   cluster.ID.String(),
+		Details: map[string]interface{}{
+			"name": cluster.Name,
+		},
+	})
+
 	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
 		"updateCluster": cluster,
 	}))
@@ -262,6 +293,8 @@ func handleDeleteCluster(ctx context.Context, w http.ResponseWriter, variables m
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
 		return
 	}
+
+	token, _ := middleware.GetTokenFromContext(ctx)
 
 	idStr, ok := variables["id"].(string)
 	if !ok {
@@ -275,10 +308,27 @@ func handleDeleteCluster(ctx context.Context, w http.ResponseWriter, variables m
 		return
 	}
 
+	// Get cluster info before deletion for audit
+	cluster, _ := service.Get(ctx, tenantID, id)
+	clusterName := ""
+	if cluster != nil {
+		clusterName = cluster.Name
+	}
+
 	if err := service.Delete(ctx, tenantID, id); err != nil {
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
 		return
 	}
+
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "DELETE_CLUSTER",
+		ResourceType: "cluster",
+		ResourceID:   id.String(),
+		Details: map[string]interface{}{
+			"name": clusterName,
+		},
+	})
 
 	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
 		"deleteCluster": true,
@@ -516,6 +566,8 @@ func handleDeployCluster(ctx context.Context, w http.ResponseWriter, variables m
 		return
 	}
 
+	token, _ := middleware.GetTokenFromContext(ctx)
+
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
@@ -572,7 +624,75 @@ func handleDeployCluster(ctx context.Context, w http.ResponseWriter, variables m
 		return
 	}
 
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "DEPLOY_CLUSTER",
+		ResourceType: "cluster",
+		ResourceID:   cluster.ID.String(),
+		Details: map[string]interface{}{
+			"name":         cluster.Name,
+			"distribution": cluster.Distribution,
+			"masterNodes":  len(input.MasterNodes),
+			"workerNodes":  len(input.WorkerNodes),
+		},
+	})
+
 	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
 		"deployCluster": cluster,
+	}))
+}
+
+func handleBulkDeleteClusters(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
+	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
+	if !ok {
+		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		return
+	}
+
+	token, _ := middleware.GetTokenFromContext(ctx)
+
+	idsRaw, ok := variables["ids"].([]interface{})
+	if !ok || len(idsRaw) == 0 {
+		json.NewEncoder(w).Encode(graphql.NewErrorResponse("ids is required"))
+		return
+	}
+
+	ids := make([]uuid.UUID, 0, len(idsRaw))
+	for _, idRaw := range idsRaw {
+		idStr, ok := idRaw.(string)
+		if !ok {
+			continue
+		}
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			continue
+		}
+		ids = append(ids, id)
+	}
+
+	if len(ids) == 0 {
+		json.NewEncoder(w).Encode(graphql.NewErrorResponse("no valid ids provided"))
+		return
+	}
+
+	deleted, err := service.BulkDelete(ctx, tenantID, ids)
+	if err != nil {
+		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		return
+	}
+
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "BULK_DELETE_CLUSTERS",
+		ResourceType: "cluster",
+		ResourceID:   "",
+		Details: map[string]interface{}{
+			"count": deleted,
+			"ids":   ids,
+		},
+	})
+
+	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+		"bulkDeleteClusters": deleted,
 	}))
 }

@@ -15,6 +15,7 @@ import {
   CSDToggleButtonGroup,
   CSDToggleButton,
   CSDAlert,
+  CSDBox,
   StatCardData,
 } from 'csd_core/UI';
 import {
@@ -128,7 +129,11 @@ export const ClustersPage: React.FC = () => {
   // Dialog state
   const [formOpen, setFormOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [editingCluster, setEditingCluster] = useState<Cluster | null>(null);
+
+  // Selection state for bulk actions
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Form mode
   const [formMode, setFormMode] = useState<'CONNECT' | 'DEPLOY'>('CONNECT');
@@ -421,6 +426,26 @@ export const ClustersPage: React.FC = () => {
     }
   };
 
+  // Selection handlers
+  const handleSelectionChange = (ids: Set<string>) => {
+    setSelectedIds(ids);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    try {
+      await request(
+        `mutation BulkDeleteClusters($ids: [ID!]!) { bulkDeleteClusters(ids: $ids) }`,
+        { ids: Array.from(selectedIds) }
+      );
+      setBulkDeleteOpen(false);
+      setSelectedIds(new Set());
+      await loadClusters();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('clusters.error_bulk_delete'));
+    }
+  };
+
   // Stat cards
   const statCards: StatCardData[] = [
     { title: t('clusters.total'), value: String(stats.total), icon: 'cloud', color: 'primary' },
@@ -637,17 +662,30 @@ export const ClustersPage: React.FC = () => {
 
   // Delete dialog
   const deleteDialog = (
-    <CSDConfirmDialog
-      id="clusters-delete-dialog"
-      open={deleteOpen}
-      onClose={() => setDeleteOpen(false)}
-      onConfirm={handleConfirmDelete}
-      title={t('clusters.delete_cluster')}
-      message={t('clusters.delete_confirmation', { name: editingCluster?.name || '' })}
-      confirmLabel={t('common.delete')}
-      cancelLabel={t('common.cancel')}
-      severity="error"
-    />
+    <>
+      <CSDConfirmDialog
+        id="clusters-delete-dialog"
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        onConfirm={handleConfirmDelete}
+        title={t('clusters.delete_cluster')}
+        message={t('clusters.delete_confirmation', { name: editingCluster?.name || '' })}
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        severity="error"
+      />
+      <CSDConfirmDialog
+        id="clusters-bulk-delete-dialog"
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        onConfirm={handleBulkDelete}
+        title={t('clusters.bulk_delete')}
+        message={t('clusters.bulk_delete_confirmation', { count: selectedIds.size })}
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        severity="error"
+      />
+    </>
   );
 
   return (
@@ -661,14 +699,27 @@ export const ClustersPage: React.FC = () => {
       autoSave={false}
       useServerFiltering={true}
       actions={
-        <CSDActionButton
-          id="clusters-add-button"
-          variant="contained"
-          startIcon={<CSDIcon name="add" />}
-          onClick={() => handleOpen(null)}
-        >
-          {t('clusters.add_cluster')}
-        </CSDActionButton>
+        <CSDBox sx={{ display: 'flex', gap: 1 }}>
+          {selectedIds.size > 0 && (
+            <CSDActionButton
+              id="clusters-bulk-delete-button"
+              variant="outlined"
+              color="error"
+              startIcon={<CSDIcon name="delete" />}
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              {t('common.delete_selected', { count: selectedIds.size })}
+            </CSDActionButton>
+          )}
+          <CSDActionButton
+            id="clusters-add-button"
+            variant="contained"
+            startIcon={<CSDIcon name="add" />}
+            onClick={() => handleOpen(null)}
+          >
+            {t('clusters.add_cluster')}
+          </CSDActionButton>
+        </CSDBox>
       }
     >
       {({ filteredData, filterBar }) => (
@@ -691,6 +742,9 @@ export const ClustersPage: React.FC = () => {
             totalCount={totalCount}
             keyField="id"
             hoverable
+            selectable
+            selectedIds={selectedIds}
+            onSelectionChange={handleSelectionChange}
           />
         </CSDCrudPage>
       )}

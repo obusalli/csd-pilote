@@ -14,7 +14,9 @@ import (
 	// Import modules to register their GraphQL operations
 	_ "csd-pilote/backend/modules/pilot/clusters"
 	_ "csd-pilote/backend/modules/pilot/containers"
+	_ "csd-pilote/backend/modules/pilot/dashboard"
 	_ "csd-pilote/backend/modules/pilot/hypervisors"
+	_ "csd-pilote/backend/modules/pilot/security"
 
 	// Kubernetes resources
 	_ "csd-pilote/backend/modules/pilot/kubernetes/deployments"

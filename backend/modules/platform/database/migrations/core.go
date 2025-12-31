@@ -8,6 +8,7 @@ import (
 	"csd-pilote/backend/modules/pilot/clusters"
 	"csd-pilote/backend/modules/pilot/containers"
 	"csd-pilote/backend/modules/pilot/hypervisors"
+	"csd-pilote/backend/modules/pilot/security"
 
 	"gorm.io/gorm"
 )
@@ -260,6 +261,21 @@ func AutoMigrateWithResult() (*MigrationResult, error) {
 	result.AddGroup(group)
 	logGroupResult(group)
 
+	// Firewall Security
+	securityModels := []interface{}{
+		&security.FirewallRule{},
+		&security.FirewallProfile{},
+		&security.FirewallProfileRule{},
+		&security.FirewallTemplate{},
+		&security.FirewallDeployment{},
+	}
+	group, err = migrateGroup(DB, "Firewall Security", securityModels)
+	if err != nil {
+		return nil, err
+	}
+	result.AddGroup(group)
+	logGroupResult(group)
+
 	// Create indexes
 	if Verbose {
 		fmt.Println("• Creating performance indexes...")
@@ -323,6 +339,31 @@ func createIndexes(db *gorm.DB) (int, error) {
 		{"idx_container_engines_status", SchemaName + ".container_engines", "status"},
 		{"idx_container_engines_tenant", SchemaName + ".container_engines", "tenant_id"},
 		{"idx_container_engines_type", SchemaName + ".container_engines", "engine_type"},
+
+		// Firewall Rules
+		{"idx_firewall_rules_name", SchemaName + ".firewall_rules", "name"},
+		{"idx_firewall_rules_tenant", SchemaName + ".firewall_rules", "tenant_id"},
+		{"idx_firewall_rules_chain", SchemaName + ".firewall_rules", "chain"},
+		{"idx_firewall_rules_action", SchemaName + ".firewall_rules", "action"},
+		{"idx_firewall_rules_enabled", SchemaName + ".firewall_rules", "enabled"},
+
+		// Firewall Profiles
+		{"idx_firewall_profiles_name", SchemaName + ".firewall_profiles", "name"},
+		{"idx_firewall_profiles_tenant", SchemaName + ".firewall_profiles", "tenant_id"},
+		{"idx_firewall_profiles_enabled", SchemaName + ".firewall_profiles", "enabled"},
+
+		// Firewall Templates
+		{"idx_firewall_templates_name", SchemaName + ".firewall_templates", "name"},
+		{"idx_firewall_templates_tenant", SchemaName + ".firewall_templates", "tenant_id"},
+		{"idx_firewall_templates_category", SchemaName + ".firewall_templates", "category"},
+		{"idx_firewall_templates_builtin", SchemaName + ".firewall_templates", "is_built_in"},
+
+		// Firewall Deployments
+		{"idx_firewall_deployments_tenant", SchemaName + ".firewall_deployments", "tenant_id"},
+		{"idx_firewall_deployments_profile", SchemaName + ".firewall_deployments", "profile_id"},
+		{"idx_firewall_deployments_agent", SchemaName + ".firewall_deployments", "agent_id"},
+		{"idx_firewall_deployments_status", SchemaName + ".firewall_deployments", "status"},
+		{"idx_firewall_deployments_action", SchemaName + ".firewall_deployments", "action"},
 	}
 
 	for _, idx := range indexes {

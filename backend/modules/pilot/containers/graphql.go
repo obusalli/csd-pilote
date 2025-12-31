@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/middleware"
 )
@@ -79,6 +80,11 @@ func init() {
 	graphql.RegisterMutation("pullImage", "Pull a container image", "csd-pilote.containers.manage",
 		func(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}) {
 			handlePullImage(ctx, w, variables, service)
+		})
+
+	graphql.RegisterMutation("bulkDeleteContainerEngines", "Delete multiple container engines", "csd-pilote.containers.delete",
+		func(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}) {
+			handleBulkDeleteContainerEngines(ctx, w, variables, service)
 		})
 }
 
@@ -169,6 +175,8 @@ func handleCreateContainerEngine(ctx context.Context, w http.ResponseWriter, var
 		return
 	}
 
+	token, _ := middleware.GetTokenFromContext(ctx)
+
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
@@ -207,6 +215,18 @@ func handleCreateContainerEngine(ctx context.Context, w http.ResponseWriter, var
 		return
 	}
 
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "CREATE_CONTAINER_ENGINE",
+		ResourceType: "container_engine",
+		ResourceID:   engine.ID.String(),
+		Details: map[string]interface{}{
+			"name":       engine.Name,
+			"engineType": engine.EngineType,
+			"host":       engine.Host,
+		},
+	})
+
 	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
 		"createContainerEngine": engine,
 	}))
@@ -218,6 +238,8 @@ func handleUpdateContainerEngine(ctx context.Context, w http.ResponseWriter, var
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
 		return
 	}
+
+	token, _ := middleware.GetTokenFromContext(ctx)
 
 	idStr, ok := variables["id"].(string)
 	if !ok {
@@ -260,6 +282,16 @@ func handleUpdateContainerEngine(ctx context.Context, w http.ResponseWriter, var
 		return
 	}
 
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "UPDATE_CONTAINER_ENGINE",
+		ResourceType: "container_engine",
+		ResourceID:   engine.ID.String(),
+		Details: map[string]interface{}{
+			"name": engine.Name,
+		},
+	})
+
 	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
 		"updateContainerEngine": engine,
 	}))
@@ -271,6 +303,8 @@ func handleDeleteContainerEngine(ctx context.Context, w http.ResponseWriter, var
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
 		return
 	}
+
+	token, _ := middleware.GetTokenFromContext(ctx)
 
 	idStr, ok := variables["id"].(string)
 	if !ok {
@@ -284,10 +318,27 @@ func handleDeleteContainerEngine(ctx context.Context, w http.ResponseWriter, var
 		return
 	}
 
+	// Get engine info before deletion for audit
+	engine, _ := service.Get(ctx, tenantID, id)
+	engineName := ""
+	if engine != nil {
+		engineName = engine.Name
+	}
+
 	if err := service.Delete(ctx, tenantID, id); err != nil {
 		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
 		return
 	}
+
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "DELETE_CONTAINER_ENGINE",
+		ResourceType: "container_engine",
+		ResourceID:   id.String(),
+		Details: map[string]interface{}{
+			"name": engineName,
+		},
+	})
 
 	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
 		"deleteContainerEngine": true,
@@ -602,5 +653,60 @@ func handlePullImage(ctx context.Context, w http.ResponseWriter, variables map[s
 
 	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
 		"pullImage": true,
+	}))
+}
+
+func handleBulkDeleteContainerEngines(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
+	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
+	if !ok {
+		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		return
+	}
+
+	token, _ := middleware.GetTokenFromContext(ctx)
+
+	idsRaw, ok := variables["ids"].([]interface{})
+	if !ok || len(idsRaw) == 0 {
+		json.NewEncoder(w).Encode(graphql.NewErrorResponse("ids is required"))
+		return
+	}
+
+	ids := make([]uuid.UUID, 0, len(idsRaw))
+	for _, idRaw := range idsRaw {
+		idStr, ok := idRaw.(string)
+		if !ok {
+			continue
+		}
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			continue
+		}
+		ids = append(ids, id)
+	}
+
+	if len(ids) == 0 {
+		json.NewEncoder(w).Encode(graphql.NewErrorResponse("no valid ids provided"))
+		return
+	}
+
+	deleted, err := service.BulkDelete(ctx, tenantID, ids)
+	if err != nil {
+		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		return
+	}
+
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "BULK_DELETE_CONTAINER_ENGINES",
+		ResourceType: "container_engine",
+		ResourceID:   "",
+		Details: map[string]interface{}{
+			"count": deleted,
+			"ids":   ids,
+		},
+	})
+
+	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+		"bulkDeleteContainerEngines": deleted,
 	}))
 }

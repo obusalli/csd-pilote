@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	csdcore "csd-pilote/backend/modules/platform/csd-core"
+	"csd-pilote/backend/modules/platform/events"
 )
 
 // Service handles business logic for clusters
@@ -45,6 +46,18 @@ func (s *Service) Create(ctx context.Context, tenantID, userID uuid.UUID, input 
 	if err := s.repo.Create(cluster); err != nil {
 		return nil, fmt.Errorf("failed to create cluster: %w", err)
 	}
+
+	// Publish cluster created event
+	events.GetEventBus().PublishAsync(events.NewEvent(
+		events.EventClusterCreated,
+		tenantID,
+		cluster.ID.String(),
+		map[string]interface{}{
+			"name":   cluster.Name,
+			"mode":   cluster.Mode,
+			"status": cluster.Status,
+		},
+	))
 
 	return cluster, nil
 }
@@ -294,12 +307,35 @@ func (s *Service) Update(ctx context.Context, tenantID, id uuid.UUID, input *Clu
 		return nil, fmt.Errorf("failed to update cluster: %w", err)
 	}
 
+	// Publish cluster updated event
+	events.GetEventBus().PublishAsync(events.NewEvent(
+		events.EventClusterUpdated,
+		tenantID,
+		cluster.ID.String(),
+		map[string]interface{}{
+			"name":   cluster.Name,
+			"status": cluster.Status,
+		},
+	))
+
 	return cluster, nil
 }
 
 // Delete deletes a cluster
 func (s *Service) Delete(ctx context.Context, tenantID, id uuid.UUID) error {
-	return s.repo.Delete(tenantID, id)
+	if err := s.repo.Delete(tenantID, id); err != nil {
+		return err
+	}
+
+	// Publish cluster deleted event
+	events.GetEventBus().PublishAsync(events.NewEvent(
+		events.EventClusterDeleted,
+		tenantID,
+		id.String(),
+		nil,
+	))
+
+	return nil
 }
 
 // TestConnection tests the connection to a cluster using a playbook
@@ -318,4 +354,9 @@ func (s *Service) TestConnection(ctx context.Context, token string, tenantID, cl
 
 	s.repo.UpdateStatus(tenantID, clusterID, ClusterStatusConnected, "Connection successful")
 	return nil
+}
+
+// BulkDelete deletes multiple clusters by IDs
+func (s *Service) BulkDelete(ctx context.Context, tenantID uuid.UUID, ids []uuid.UUID) (int64, error) {
+	return s.repo.BulkDelete(tenantID, ids)
 }

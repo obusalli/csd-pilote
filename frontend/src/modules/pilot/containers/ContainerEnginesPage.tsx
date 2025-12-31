@@ -45,6 +45,12 @@ const DELETE_ENGINE = `
   }
 `;
 
+const BULK_DELETE_ENGINES = `
+  mutation BulkDeleteContainerEngines($ids: [ID!]!) {
+    bulkDeleteContainerEngines(ids: $ids)
+  }
+`;
+
 const statusColors: Record<string, 'success' | 'error' | 'warning' | 'default'> = {
   CONNECTED: 'success',
   DISCONNECTED: 'error',
@@ -128,6 +134,7 @@ export const ContainerEnginesPage: React.FC = () => {
         create: CREATE_ENGINE,
         update: UPDATE_ENGINE,
         delete: DELETE_ENGINE,
+        bulkDelete: BULK_DELETE_ENGINES,
       }}
       dataKeys={{
         list: 'containerEngines',
@@ -135,7 +142,9 @@ export const ContainerEnginesPage: React.FC = () => {
         create: 'createContainerEngine',
         update: 'updateContainerEngine',
         delete: 'deleteContainerEngine',
+        bulkDelete: 'bulkDeleteContainerEngines',
       }}
+      enableBulkActions
       onRowClick={(row: { id: string }) => navigate(`/pilote/containers/engines/${row.id}`)}
       permissions={{
         create: 'csd-pilote.containers.create',

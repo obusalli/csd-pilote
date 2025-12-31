@@ -5,6 +5,7 @@ import (
 	"gorm.io/gorm"
 
 	"csd-pilote/backend/modules/platform/database"
+	"csd-pilote/backend/modules/platform/filters"
 )
 
 // Repository handles database operations for clusters
@@ -136,4 +137,66 @@ func (r *Repository) GetByIDWithNodes(tenantID, id uuid.UUID) (*Cluster, error) 
 		return nil, err
 	}
 	return &cluster, nil
+}
+
+// Count returns the total count of clusters for a tenant
+func (r *Repository) Count(tenantID uuid.UUID) (int64, error) {
+	var count int64
+	err := r.db.Model(&Cluster{}).Where("tenant_id = ?", tenantID).Count(&count).Error
+	return count, err
+}
+
+// CountByStatus returns the count of clusters by status for a tenant
+func (r *Repository) CountByStatus(tenantID uuid.UUID, status ClusterStatus) (int64, error) {
+	var count int64
+	err := r.db.Model(&Cluster{}).Where("tenant_id = ? AND status = ?", tenantID, status).Count(&count).Error
+	return count, err
+}
+
+// BulkDelete deletes multiple clusters by IDs
+func (r *Repository) BulkDelete(tenantID uuid.UUID, ids []uuid.UUID) (int64, error) {
+	result := r.db.Where("tenant_id = ? AND id IN ?", tenantID, ids).Delete(&Cluster{})
+	return result.RowsAffected, result.Error
+}
+
+// CountWithFilter returns the count of clusters matching the filter
+func (r *Repository) CountWithFilter(tenantID uuid.UUID, filter *ClusterFilter, advancedFilter interface{}) (int64, error) {
+	var count int64
+	query := r.db.Model(&Cluster{}).Where("tenant_id = ?", tenantID)
+
+	// Apply simple filter
+	if filter != nil {
+		if filter.Search != nil && *filter.Search != "" {
+			search := "%" + *filter.Search + "%"
+			query = query.Where("name ILIKE ? OR description ILIKE ?", search, search)
+		}
+		if filter.Status != nil {
+			query = query.Where("status = ?", *filter.Status)
+		}
+		if filter.Mode != nil {
+			query = query.Where("mode = ?", *filter.Mode)
+		}
+		if filter.Distribution != nil {
+			query = query.Where("distribution = ?", *filter.Distribution)
+		}
+	}
+
+	// Apply advanced filter
+	if advancedFilter != nil {
+		qb := filters.NewQueryBuilder(r.db).
+			WithFieldMappings(map[string]string{
+				"createdAt":     "created_at",
+				"updatedAt":     "updated_at",
+				"statusMessage": "status_message",
+				"artifactKey":   "artifact_key",
+			})
+		var err error
+		query, err = qb.ApplyFilterJSON(query, advancedFilter)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	err := query.Count(&count).Error
+	return count, err
 }

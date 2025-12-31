@@ -49,6 +49,12 @@ export const BREADCRUMB_ICONS: Record<string, string> = {
 
   // Containers pages
   'breadcrumb.container_engines': 'cube',
+
+  // Security pages
+  'breadcrumb.security': 'shield',
+  'breadcrumb.rules': 'list',
+  'breadcrumb.profiles': 'folder',
+  'breadcrumb.templates': 'template',
 };
 
 /**
@@ -76,5 +82,10 @@ export const BREADCRUMBS = {
   CONTAINERS: {
     labelKey: 'breadcrumb.containers',
     icon: 'cube',
+  } as BreadcrumbConfig,
+
+  SECURITY: {
+    labelKey: 'breadcrumb.security',
+    icon: 'shield',
   } as BreadcrumbConfig,
 } as const;

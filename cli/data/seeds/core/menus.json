@@ -327,5 +327,108 @@
       "required_permission": "csd-pilote.containers.read",
       "sort_order": 303
     }
+  },
+  {
+    "key": "menu.csd-pilote.security",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-security",
+      "name": "Security",
+      "name_translations": {
+        "en": "Security",
+        "fr": "Sécurité",
+        "de": "Sicherheit",
+        "es": "Seguridad",
+        "it": "Sicurezza"
+      },
+      "icon": "shield",
+      "required_permission": "csd-pilote.security.rules.read",
+      "sort_order": 400
+    }
+  },
+  {
+    "key": "menu.csd-pilote.security-rules",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-security-rules",
+      "name": "Firewall Rules",
+      "name_translations": {
+        "en": "Firewall Rules",
+        "fr": "Règles de pare-feu",
+        "de": "Firewall-Regeln",
+        "es": "Reglas de firewall",
+        "it": "Regole firewall"
+      },
+      "icon": "list",
+      "path": "/pilote/security/rules",
+      "parent_key": "menu.csd-pilote.security",
+      "required_permission": "csd-pilote.security.rules.read",
+      "sort_order": 401
+    }
+  },
+  {
+    "key": "menu.csd-pilote.security-profiles",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-security-profiles",
+      "name": "Profiles",
+      "name_translations": {
+        "en": "Profiles",
+        "fr": "Profils",
+        "de": "Profile",
+        "es": "Perfiles",
+        "it": "Profili"
+      },
+      "icon": "folder",
+      "path": "/pilote/security/profiles",
+      "parent_key": "menu.csd-pilote.security",
+      "required_permission": "csd-pilote.security.profiles.read",
+      "sort_order": 402
+    }
+  },
+  {
+    "key": "menu.csd-pilote.security-templates",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-security-templates",
+      "name": "Templates",
+      "name_translations": {
+        "en": "Templates",
+        "fr": "Modèles",
+        "de": "Vorlagen",
+        "es": "Plantillas",
+        "it": "Modelli"
+      },
+      "icon": "template",
+      "path": "/pilote/security/templates",
+      "parent_key": "menu.csd-pilote.security",
+      "required_permission": "csd-pilote.security.templates.read",
+      "sort_order": 403
+    }
+  },
+  {
+    "key": "menu.csd-pilote.security-deployments",
+    "service_slug": "csd-pilote",
+    "isSystemScope": true,
+    "value": {
+      "id": "pilote-security-deployments",
+      "name": "Deployments",
+      "name_translations": {
+        "en": "Deployments",
+        "fr": "Déploiements",
+        "de": "Bereitstellungen",
+        "es": "Despliegues",
+        "it": "Distribuzioni"
+      },
+      "icon": "rocket",
+      "path": "/pilote/security/deployments",
+      "parent_key": "menu.csd-pilote.security",
+      "required_permission": "csd-pilote.security.deploy",
+      "sort_order": 404
+    }
   }
 ]

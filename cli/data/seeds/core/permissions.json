@@ -454,5 +454,161 @@
       "it": "Esegui comandi nei container"
     },
     "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.security.rules.read",
+    "name": "View firewall rules",
+    "name_translations": {
+      "en": "View firewall rules",
+      "fr": "Voir les règles de pare-feu",
+      "de": "Firewall-Regeln anzeigen",
+      "es": "Ver reglas de firewall",
+      "it": "Visualizza regole firewall"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.security.rules.create",
+    "name": "Create firewall rules",
+    "name_translations": {
+      "en": "Create firewall rules",
+      "fr": "Créer des règles de pare-feu",
+      "de": "Firewall-Regeln erstellen",
+      "es": "Crear reglas de firewall",
+      "it": "Crea regole firewall"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.security.rules.update",
+    "name": "Update firewall rules",
+    "name_translations": {
+      "en": "Update firewall rules",
+      "fr": "Modifier les règles de pare-feu",
+      "de": "Firewall-Regeln aktualisieren",
+      "es": "Actualizar reglas de firewall",
+      "it": "Aggiorna regole firewall"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.security.rules.delete",
+    "name": "Delete firewall rules",
+    "name_translations": {
+      "en": "Delete firewall rules",
+      "fr": "Supprimer les règles de pare-feu",
+      "de": "Firewall-Regeln löschen",
+      "es": "Eliminar reglas de firewall",
+      "it": "Elimina regole firewall"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.security.profiles.read",
+    "name": "View firewall profiles",
+    "name_translations": {
+      "en": "View firewall profiles",
+      "fr": "Voir les profils de pare-feu",
+      "de": "Firewall-Profile anzeigen",
+      "es": "Ver perfiles de firewall",
+      "it": "Visualizza profili firewall"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.security.profiles.create",
+    "name": "Create firewall profiles",
+    "name_translations": {
+      "en": "Create firewall profiles",
+      "fr": "Créer des profils de pare-feu",
+      "de": "Firewall-Profile erstellen",
+      "es": "Crear perfiles de firewall",
+      "it": "Crea profili firewall"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.security.profiles.update",
+    "name": "Update firewall profiles",
+    "name_translations": {
+      "en": "Update firewall profiles",
+      "fr": "Modifier les profils de pare-feu",
+      "de": "Firewall-Profile aktualisieren",
+      "es": "Actualizar perfiles de firewall",
+      "it": "Aggiorna profili firewall"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.security.profiles.delete",
+    "name": "Delete firewall profiles",
+    "name_translations": {
+      "en": "Delete firewall profiles",
+      "fr": "Supprimer les profils de pare-feu",
+      "de": "Firewall-Profile löschen",
+      "es": "Eliminar perfiles de firewall",
+      "it": "Elimina profili firewall"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.security.templates.read",
+    "name": "View firewall templates",
+    "name_translations": {
+      "en": "View firewall templates",
+      "fr": "Voir les modèles de pare-feu",
+      "de": "Firewall-Vorlagen anzeigen",
+      "es": "Ver plantillas de firewall",
+      "it": "Visualizza modelli firewall"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.security.templates.create",
+    "name": "Create firewall templates",
+    "name_translations": {
+      "en": "Create firewall templates",
+      "fr": "Créer des modèles de pare-feu",
+      "de": "Firewall-Vorlagen erstellen",
+      "es": "Crear plantillas de firewall",
+      "it": "Crea modelli firewall"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.security.templates.update",
+    "name": "Update firewall templates",
+    "name_translations": {
+      "en": "Update firewall templates",
+      "fr": "Modifier les modèles de pare-feu",
+      "de": "Firewall-Vorlagen aktualisieren",
+      "es": "Actualizar plantillas de firewall",
+      "it": "Aggiorna modelli firewall"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.security.templates.delete",
+    "name": "Delete firewall templates",
+    "name_translations": {
+      "en": "Delete firewall templates",
+      "fr": "Supprimer les modèles de pare-feu",
+      "de": "Firewall-Vorlagen löschen",
+      "es": "Eliminar plantillas de firewall",
+      "it": "Elimina modelli firewall"
+    },
+    "category": "csd-pilote"
+  },
+  {
+    "code": "csd-pilote.security.deploy",
+    "name": "Deploy firewall configurations",
+    "name_translations": {
+      "en": "Deploy firewall configurations",
+      "fr": "Déployer les configurations de pare-feu",
+      "de": "Firewall-Konfigurationen bereitstellen",
+      "es": "Desplegar configuraciones de firewall",
+      "it": "Distribuisci configurazioni firewall"
+    },
+    "category": "csd-pilote"
   }
 ]

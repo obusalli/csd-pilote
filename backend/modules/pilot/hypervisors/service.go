@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	csdcore "csd-pilote/backend/modules/platform/csd-core"
+	"csd-pilote/backend/modules/platform/events"
 )
 
 // Service handles business logic for hypervisors
@@ -45,6 +46,18 @@ func (s *Service) Create(ctx context.Context, tenantID, userID uuid.UUID, input 
 	if err := s.repo.Create(hypervisor); err != nil {
 		return nil, fmt.Errorf("failed to create hypervisor: %w", err)
 	}
+
+	// Publish hypervisor created event
+	events.GetEventBus().PublishAsync(events.NewEvent(
+		events.EventHypervisorCreated,
+		tenantID,
+		hypervisor.ID.String(),
+		map[string]interface{}{
+			"name":   hypervisor.Name,
+			"mode":   hypervisor.Mode,
+			"status": hypervisor.Status,
+		},
+	))
 
 	return hypervisor, nil
 }
@@ -98,12 +111,35 @@ func (s *Service) Update(ctx context.Context, tenantID, id uuid.UUID, input *Hyp
 		return nil, fmt.Errorf("failed to update hypervisor: %w", err)
 	}
 
+	// Publish hypervisor updated event
+	events.GetEventBus().PublishAsync(events.NewEvent(
+		events.EventHypervisorUpdated,
+		tenantID,
+		hypervisor.ID.String(),
+		map[string]interface{}{
+			"name":   hypervisor.Name,
+			"status": hypervisor.Status,
+		},
+	))
+
 	return hypervisor, nil
 }
 
 // Delete deletes a hypervisor
 func (s *Service) Delete(ctx context.Context, tenantID, id uuid.UUID) error {
-	return s.repo.Delete(tenantID, id)
+	if err := s.repo.Delete(tenantID, id); err != nil {
+		return err
+	}
+
+	// Publish hypervisor deleted event
+	events.GetEventBus().PublishAsync(events.NewEvent(
+		events.EventHypervisorDeleted,
+		tenantID,
+		id.String(),
+		nil,
+	))
+
+	return nil
 }
 
 // TestConnection tests the connection to a hypervisor using a playbook
@@ -218,4 +254,9 @@ func (s *Service) runDeployment(hypervisorID, tenantID uuid.UUID, input *DeployH
 
 	// Step 4: Update hypervisor status to connected
 	s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusConnected, "Libvirt deployed successfully")
+}
+
+// BulkDelete deletes multiple hypervisors by IDs
+func (s *Service) BulkDelete(ctx context.Context, tenantID uuid.UUID, ids []uuid.UUID) (int64, error) {
+	return s.repo.BulkDelete(tenantID, ids)
 }

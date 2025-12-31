@@ -11,11 +11,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
 	"csd-pilote/backend/modules/platform/config"
 	"csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/database"
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/middleware"
+	"csd-pilote/backend/modules/platform/websocket"
 )
 
 // Server represents the csd-pilote server
@@ -56,6 +59,26 @@ func NewServer(cfg *config.Config) (*Server, error) {
 
 	// GraphQL endpoint
 	mux.Handle(apiBasePath+"/query", graphqlHandler)
+
+	// WebSocket endpoint for real-time events
+	mux.HandleFunc(apiBasePath+"/ws", func(w http.ResponseWriter, r *http.Request) {
+		// Extract tenant and user from context (set by auth middleware)
+		tenantID, ok := r.Context().Value("tenantId").(uuid.UUID)
+		if !ok {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		userID, ok := r.Context().Value("userId").(uuid.UUID)
+		if !ok {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		websocket.HandleWebSocket(w, r, tenantID, userID)
+	})
+
+	// Initialize WebSocket hub
+	_ = websocket.GetHub()
+	log.Println("WebSocket hub initialized")
 
 	// Apply middleware
 	handler := corsMiddleware(cfg.CORS)(middleware.AuthMiddleware(mux))

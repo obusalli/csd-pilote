@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 
@@ -688,6 +689,49 @@ func (c *Client) ListAgents(ctx context.Context, token string) ([]Agent, error) 
 	return result.Agents, nil
 }
 
+// AuditEntry represents an audit log entry to send to csd-core
+type AuditEntry struct {
+	Action       string                 `json:"action"`
+	ResourceType string                 `json:"resourceType"`
+	ResourceID   string                 `json:"resourceId,omitempty"`
+	Details      map[string]interface{} `json:"details,omitempty"`
+}
+
+// LogAudit sends an audit log entry to csd-core
+func (c *Client) LogAudit(ctx context.Context, token string, entry AuditEntry) error {
+	mutation := `
+		mutation LogAuditFromService($input: ServiceAuditInput!) {
+			logAuditFromService(input: $input) {
+				success
+			}
+		}
+	`
+
+	_, err := c.ExecuteWithName(ctx, token, "LogAuditFromService", mutation, map[string]interface{}{
+		"input": map[string]interface{}{
+			"action":       entry.Action,
+			"resourceType": entry.ResourceType,
+			"resourceId":   entry.ResourceID,
+			"details":      entry.Details,
+			"serviceName":  "csd-pilote",
+		},
+	})
+	return err
+}
+
+// LogAuditAsync sends an audit log entry asynchronously (fire and forget)
+func (c *Client) LogAuditAsync(ctx context.Context, token string, entry AuditEntry) {
+	go func() {
+		// Use background context since original might be cancelled
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := c.LogAudit(bgCtx, token, entry); err != nil {
+			// Log error but don't fail the operation
+			log.Printf("[Audit] Failed to log audit entry for action %s: %v", entry.Action, err)
+		}
+	}()
+}
+
 // ServiceRegistration represents the service registration info
 type ServiceRegistration struct {
 	Name        string `json:"name"`
@@ -702,6 +746,88 @@ type ServiceRegistration struct {
 	RemoteEntryPath string            `json:"remoteEntryPath,omitempty"`
 	RoutePath       string            `json:"routePath,omitempty"`
 	ExposedModules  map[string]string `json:"exposedModules,omitempty"`
+}
+
+// CryptoResult represents the result of an encryption/decryption operation
+type CryptoResult struct {
+	Data    string `json:"data"`
+	KeyID   string `json:"keyId,omitempty"`
+	Success bool   `json:"success"`
+}
+
+// EncryptData encrypts data using csd-core's crypto service
+func (c *Client) EncryptData(ctx context.Context, token string, data []byte, keyID string) (*CryptoResult, error) {
+	mutation := `
+		mutation EncryptData($input: EncryptInput!) {
+			encryptData(input: $input) {
+				data
+				keyId
+				success
+			}
+		}
+	`
+
+	input := map[string]interface{}{
+		"data": string(data),
+	}
+	if keyID != "" {
+		input["keyId"] = keyID
+	}
+
+	resp, err := c.ExecuteWithName(ctx, token, "EncryptData", mutation, map[string]interface{}{
+		"input": input,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		EncryptData *CryptoResult `json:"encryptData"`
+	}
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse encryption result: %w", err)
+	}
+
+	return result.EncryptData, nil
+}
+
+// DecryptData decrypts data using csd-core's crypto service
+func (c *Client) DecryptData(ctx context.Context, token string, encryptedData string, keyID string) ([]byte, error) {
+	mutation := `
+		mutation DecryptData($input: DecryptInput!) {
+			decryptData(input: $input) {
+				data
+				success
+			}
+		}
+	`
+
+	input := map[string]interface{}{
+		"data": encryptedData,
+	}
+	if keyID != "" {
+		input["keyId"] = keyID
+	}
+
+	resp, err := c.ExecuteWithName(ctx, token, "DecryptData", mutation, map[string]interface{}{
+		"input": input,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		DecryptData *CryptoResult `json:"decryptData"`
+	}
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse decryption result: %w", err)
+	}
+
+	if result.DecryptData == nil || !result.DecryptData.Success {
+		return nil, fmt.Errorf("decryption failed")
+	}
+
+	return []byte(result.DecryptData.Data), nil
 }
 
 // RegisterService registers this service with csd-core

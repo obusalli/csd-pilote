@@ -5,6 +5,7 @@ import (
 	"gorm.io/gorm"
 
 	"csd-pilote/backend/modules/platform/database"
+	"csd-pilote/backend/modules/platform/filters"
 )
 
 // Repository handles database operations for hypervisors
@@ -89,4 +90,61 @@ func (r *Repository) UpdateInfo(tenantID, id uuid.UUID, info map[string]interfac
 	return r.db.Model(&Hypervisor{}).
 		Where("tenant_id = ? AND id = ?", tenantID, id).
 		Updates(info).Error
+}
+
+// Count returns the total count of hypervisors for a tenant
+func (r *Repository) Count(tenantID uuid.UUID) (int64, error) {
+	var count int64
+	err := r.db.Model(&Hypervisor{}).Where("tenant_id = ?", tenantID).Count(&count).Error
+	return count, err
+}
+
+// CountByStatus returns the count of hypervisors by status for a tenant
+func (r *Repository) CountByStatus(tenantID uuid.UUID, status HypervisorStatus) (int64, error) {
+	var count int64
+	err := r.db.Model(&Hypervisor{}).Where("tenant_id = ? AND status = ?", tenantID, status).Count(&count).Error
+	return count, err
+}
+
+// BulkDelete deletes multiple hypervisors by IDs
+func (r *Repository) BulkDelete(tenantID uuid.UUID, ids []uuid.UUID) (int64, error) {
+	result := r.db.Where("tenant_id = ? AND id IN ?", tenantID, ids).Delete(&Hypervisor{})
+	return result.RowsAffected, result.Error
+}
+
+// CountWithFilter returns the count of hypervisors matching the filter
+func (r *Repository) CountWithFilter(tenantID uuid.UUID, filter *HypervisorFilter, advancedFilter interface{}) (int64, error) {
+	var count int64
+	query := r.db.Model(&Hypervisor{}).Where("tenant_id = ?", tenantID)
+
+	// Apply simple filter
+	if filter != nil {
+		if filter.Search != nil && *filter.Search != "" {
+			search := "%" + *filter.Search + "%"
+			query = query.Where("name ILIKE ? OR description ILIKE ? OR hostname ILIKE ?", search, search, search)
+		}
+		if filter.Status != nil {
+			query = query.Where("status = ?", *filter.Status)
+		}
+	}
+
+	// Apply advanced filter
+	if advancedFilter != nil {
+		qb := filters.NewQueryBuilder(r.db).
+			WithFieldMappings(map[string]string{
+				"createdAt":      "created_at",
+				"updatedAt":      "updated_at",
+				"statusMessage":  "status_message",
+				"artifactKey":    "artifact_key",
+				"lastCheckedAt":  "last_checked_at",
+			})
+		var err error
+		query, err = qb.ApplyFilterJSON(query, advancedFilter)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	err := query.Count(&count).Error
+	return count, err
 }

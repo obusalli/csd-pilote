@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	csdcore "csd-pilote/backend/modules/platform/csd-core"
+	"csd-pilote/backend/modules/platform/events"
 )
 
 // Service handles business logic for container engines
@@ -44,6 +45,18 @@ func (s *Service) Create(ctx context.Context, tenantID, userID uuid.UUID, input 
 	if err := s.repo.Create(engine); err != nil {
 		return nil, fmt.Errorf("failed to create container engine: %w", err)
 	}
+
+	// Publish container engine created event
+	events.GetEventBus().PublishAsync(events.NewEvent(
+		events.EventContainerEngineCreated,
+		tenantID,
+		engine.ID.String(),
+		map[string]interface{}{
+			"name":       engine.Name,
+			"engineType": engine.EngineType,
+			"status":     engine.Status,
+		},
+	))
 
 	return engine, nil
 }
@@ -92,12 +105,35 @@ func (s *Service) Update(ctx context.Context, tenantID, id uuid.UUID, input *Con
 		return nil, fmt.Errorf("failed to update container engine: %w", err)
 	}
 
+	// Publish container engine updated event
+	events.GetEventBus().PublishAsync(events.NewEvent(
+		events.EventContainerEngineUpdated,
+		tenantID,
+		engine.ID.String(),
+		map[string]interface{}{
+			"name":   engine.Name,
+			"status": engine.Status,
+		},
+	))
+
 	return engine, nil
 }
 
 // Delete deletes a container engine
 func (s *Service) Delete(ctx context.Context, tenantID, id uuid.UUID) error {
-	return s.repo.Delete(tenantID, id)
+	if err := s.repo.Delete(tenantID, id); err != nil {
+		return err
+	}
+
+	// Publish container engine deleted event
+	events.GetEventBus().PublishAsync(events.NewEvent(
+		events.EventContainerEngineDeleted,
+		tenantID,
+		id.String(),
+		nil,
+	))
+
+	return nil
 }
 
 // TestConnection tests the connection to a container engine using a playbook
@@ -162,4 +198,9 @@ func (s *Service) GetContainerLogs(ctx context.Context, token string, tenantID, 
 func (s *Service) ExecContainer(ctx context.Context, token string, tenantID, engineID uuid.UUID, agentID uuid.UUID, containerID string, command []string) (string, error) {
 	// This would execute a docker playbook with container_exec action
 	return "", nil
+}
+
+// BulkDelete deletes multiple container engines by IDs
+func (s *Service) BulkDelete(ctx context.Context, tenantID uuid.UUID, ids []uuid.UUID) (int64, error) {
+	return s.repo.BulkDelete(tenantID, ids)
 }

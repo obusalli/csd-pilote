@@ -33,6 +33,20 @@ const ContainerEngineDetailPage = React.lazy(() =>
   import('@pilot/containers/ContainerEngineDetailPage').then((m) => ({ default: m.ContainerEngineDetailPage }))
 );
 
+// Security pages
+const SecurityRulesPage = React.lazy(() =>
+  import('@pilot/security/RulesPage').then((m) => ({ default: m.RulesPage }))
+);
+const SecurityProfilesPage = React.lazy(() =>
+  import('@pilot/security/ProfilesPage').then((m) => ({ default: m.ProfilesPage }))
+);
+const SecurityTemplatesPage = React.lazy(() =>
+  import('@pilot/security/TemplatesPage').then((m) => ({ default: m.TemplatesPage }))
+);
+const SecurityDeploymentsPage = React.lazy(() =>
+  import('@pilot/security/DeploymentsPage').then((m) => ({ default: m.DeploymentsPage }))
+);
+
 // Loading fallback
 const Loading: React.FC = () => (
   <div style={{
@@ -52,6 +66,10 @@ const ROUTES: Record<string, React.LazyExoticComponent<React.FC>> = {
   '/pilote/kubernetes/clusters': ClustersPage,
   '/pilote/libvirt/hypervisors': HypervisorsPage,
   '/pilote/containers/engines': ContainerEnginesPage,
+  '/pilote/security/rules': SecurityRulesPage,
+  '/pilote/security/profiles': SecurityProfilesPage,
+  '/pilote/security/templates': SecurityTemplatesPage,
+  '/pilote/security/deployments': SecurityDeploymentsPage,
 };
 
 // Dynamic routes (with parameters)

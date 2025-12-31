@@ -15,7 +15,8 @@ type GraphQLResponse struct {
 
 // GraphQLError represents a GraphQL error
 type GraphQLError struct {
-	Message string `json:"message"`
+	Message    string                 `json:"message"`
+	Extensions map[string]interface{} `json:"extensions,omitempty"`
 }
 
 // NewErrorResponse creates an error response
@@ -29,5 +30,17 @@ func NewErrorResponse(message string) GraphQLResponse {
 func NewDataResponse(data interface{}) GraphQLResponse {
 	return GraphQLResponse{
 		Data: data,
+	}
+}
+
+// NewErrorResponseWithCode creates an error response with an error code
+func NewErrorResponseWithCode(code, message string) GraphQLResponse {
+	return GraphQLResponse{
+		Errors: []GraphQLError{{
+			Message: message,
+			Extensions: map[string]interface{}{
+				"code": code,
+			},
+		}},
 	}
 }

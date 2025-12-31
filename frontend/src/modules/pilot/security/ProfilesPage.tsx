@@ -26,6 +26,7 @@ import {
   type FilterFieldDefinition,
 } from 'csd_core/Providers';
 import { useGraphQL } from '../../../shared/hooks/useGraphQL';
+import { useCloneEntity } from '../../../shared/hooks/useCloneEntity';
 import { BREADCRUMBS } from '../../../shared/config/breadcrumbs';
 
 // Types
@@ -352,6 +353,22 @@ export const ProfilesPage: React.FC = () => {
     reader.readAsText(file);
   };
 
+  // Clone entity hook - opens form with cloned data
+  const { cloneEntity } = useCloneEntity<FirewallProfile>({
+    nameField: 'name',
+    additionalFields: [
+      'description', 'enabled', 'inputPolicy', 'outputPolicy', 'forwardPolicy',
+      'enableNat', 'enableConntrack', 'allowLoopback', 'allowEstablished',
+      'allowIcmpPing', 'enableIpv6',
+    ],
+    onClone: (clonedData) => {
+      setEditingProfile(null); // Ensure create mode
+      setForm(clonedData as Partial<ProfileInput>);
+      setInitialForm(clonedData as Partial<ProfileInput>);
+      setFormOpen(true);
+    },
+  });
+
   // Stat cards
   const statCards: StatCardData[] = [
     { title: t('clusters.total'), value: String(stats.total), icon: 'folder', color: 'primary' },
@@ -405,6 +422,7 @@ export const ProfilesPage: React.FC = () => {
   const actions = [
     { icon: 'visibility', onClick: (profile: FirewallProfile) => window.location.href = `/pilote/security/profiles/${profile.id}`, tooltip: 'common.view', color: 'primary' as const },
     { icon: 'download', onClick: (profile: FirewallProfile) => handleExport(profile), tooltip: 'security.profiles.export', color: 'info' as const },
+    { icon: 'copy', onClick: (profile: FirewallProfile) => cloneEntity(profile), tooltip: 'common.clone', color: 'secondary' as const },
     { icon: 'edit', onClick: (profile: FirewallProfile) => handleOpen(profile), tooltip: 'common.edit', color: 'primary' as const },
     { icon: 'delete', onClick: (profile: FirewallProfile) => handleDelete(profile), tooltip: 'common.delete', color: 'error' as const },
   ];

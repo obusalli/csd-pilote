@@ -24,6 +24,7 @@ import {
   type FilterFieldDefinition,
 } from 'csd_core/Providers';
 import { useGraphQL } from '../../../shared/hooks/useGraphQL';
+import { useCloneEntity } from '../../../shared/hooks/useCloneEntity';
 import { BREADCRUMBS } from '../../../shared/config/breadcrumbs';
 
 // Types
@@ -272,6 +273,19 @@ export const TemplatesPage: React.FC = () => {
     }
   };
 
+  // Clone entity hook - opens form with cloned data (always allowed, even for built-in)
+  const { cloneEntity } = useCloneEntity<FirewallTemplate>({
+    nameField: 'name',
+    additionalFields: ['description', 'rulesJson'],
+    onClone: (clonedData) => {
+      setEditingTemplate(null); // Ensure create mode
+      // Always set category to 'custom' for cloned templates
+      setForm({ ...clonedData, category: 'custom' } as Partial<TemplateInput>);
+      setInitialForm({ ...clonedData, category: 'custom' } as Partial<TemplateInput>);
+      setFormOpen(true);
+    },
+  });
+
   // Stat cards
   const statCards: StatCardData[] = [
     { title: t('clusters.total'), value: String(stats.total), icon: 'template', color: 'primary' },
@@ -331,6 +345,7 @@ export const TemplatesPage: React.FC = () => {
 
   // Row actions
   const actions = [
+    { icon: 'copy', onClick: (template: FirewallTemplate) => cloneEntity(template), tooltip: 'common.clone', color: 'secondary' as const },
     { icon: 'edit', onClick: (template: FirewallTemplate) => handleOpen(template), tooltip: 'common.edit', color: 'primary' as const, disabled: (template: FirewallTemplate) => template.isBuiltIn },
     { icon: 'delete', onClick: (template: FirewallTemplate) => handleDelete(template), tooltip: 'common.delete', color: 'error' as const, disabled: (template: FirewallTemplate) => template.isBuiltIn },
   ];

@@ -196,6 +196,7 @@
   "security.rules.action_snat": "SNAT",
   "security.rules.action_dnat": "DNAT",
   "security.rules.action_redirect": "Redirection",
+  "security.rules.clone_rule": "Cloner la règle",
   "security.rules.search_placeholder": "Rechercher des règles...",
   "security.rules.error_loading": "Erreur lors du chargement des règles",
   "security.rules.error_saving": "Erreur lors de l'enregistrement de la règle",
@@ -241,6 +242,13 @@
   "security.profiles.enable_conntrack": "Activer suivi connexion",
   "security.profiles.enable_nat": "Activer NAT",
   "security.profiles.enable_ipv6": "Activer IPv6",
+  "security.profiles.clone_profile": "Cloner le profil",
+  "security.profiles.no_rules": "Aucune règle dans ce profil",
+  "security.profiles.no_available_rules": "Aucune règle disponible à ajouter",
+  "security.profiles.rules_added": "Règles ajoutées avec succès",
+  "security.profiles.rules_removed": "Règles retirées avec succès",
+  "security.profiles.remove_rules_confirmation": "Êtes-vous sûr de vouloir retirer {{count}} règle(s) de ce profil ?",
+  "security.profiles.not_found": "Profil non trouvé",
 
   "security.templates.title": "Modèles de pare-feu",
   "security.templates.add_template": "Ajouter un modèle",
@@ -293,6 +301,8 @@
   "security.deployments.dry_run_warning": "Le mode test validera la configuration sans l'appliquer réellement sur l'agent.",
   "security.deployments.dry_run_success": "Validation réussie",
   "security.deployments.config_valid": "La configuration est valide",
+
+  "common.clone": "Cloner",
 
   "pilot.dashboard.security": "Sécurité",
   "pilot.dashboard.firewallRules": "Règles de pare-feu",

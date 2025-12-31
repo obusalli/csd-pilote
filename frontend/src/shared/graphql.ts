@@ -44,14 +44,15 @@ export async function graphqlRequest<T>(
   }
 
   // Extract operation name from query for GraphQL spec compliance
-  const operationName = extractOperationName(query);
+  const operationName = extractOperationName(query) || 'Anonymous';
 
-  // Debug logging
-  if (!operationName) {
-    console.warn('[GraphQL] Could not extract operation name from query:', query.substring(0, 100));
-  }
+  // Build URL with query parameters (like csd-core/csd-stocks)
+  // v= is a cache buster, service= identifies the caller, operationName= helps with debugging/logging
+  const separator = endpoint.includes('?') ? '&' : '?';
+  const cacheBuster = Date.now();
+  const url = `${endpoint}${separator}v=${cacheBuster}&service=csd-pilote&operationName=${encodeURIComponent(operationName)}`;
 
-  const response = await fetch(endpoint, {
+  const response = await fetch(url, {
     method: 'POST',
     headers,
     body: JSON.stringify({ query, variables, operationName }),

@@ -40,6 +40,9 @@ const SecurityRulesPage = React.lazy(() =>
 const SecurityProfilesPage = React.lazy(() =>
   import('@pilot/security/ProfilesPage').then((m) => ({ default: m.ProfilesPage }))
 );
+const SecurityProfileDetailPage = React.lazy(() =>
+  import('@pilot/security/ProfileDetailPage').then((m) => ({ default: m.ProfileDetailPage }))
+);
 const SecurityTemplatesPage = React.lazy(() =>
   import('@pilot/security/TemplatesPage').then((m) => ({ default: m.TemplatesPage }))
 );
@@ -88,6 +91,10 @@ const DYNAMIC_ROUTES: Array<{
   {
     pattern: /^\/pilote\/containers\/engines\/([^/]+)$/,
     component: ContainerEngineDetailPage,
+  },
+  {
+    pattern: /^\/pilote\/security\/profiles\/([^/]+)$/,
+    component: SecurityProfileDetailPage,
   },
 ];
 

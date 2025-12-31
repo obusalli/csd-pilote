@@ -25,6 +25,7 @@ import {
   type FilterFieldDefinition,
 } from 'csd_core/Providers';
 import { useGraphQL } from '../../../shared/hooks/useGraphQL';
+import { useCloneEntity } from '../../../shared/hooks/useCloneEntity';
 import { BREADCRUMBS } from '../../../shared/config/breadcrumbs';
 
 // Types
@@ -437,6 +438,23 @@ export const RulesPage: React.FC = () => {
     }
   };
 
+  // Clone entity hook - opens form with cloned data
+  const { cloneEntity } = useCloneEntity<FirewallRule>({
+    nameField: 'name',
+    additionalFields: [
+      'description', 'chain', 'protocol', 'sourceIp', 'sourcePort',
+      'destIp', 'destPort', 'action', 'priority', 'enabled', 'comment',
+      'ruleExpr', 'inInterface', 'outInterface', 'ctState', 'rateLimit',
+      'rateBurst', 'limitOver', 'natToAddr', 'natToPort', 'logPrefix', 'logLevel',
+    ],
+    onClone: (clonedData) => {
+      setEditingRule(null); // Ensure create mode
+      setForm(clonedData as Partial<RuleInput>);
+      setInitialForm(clonedData as Partial<RuleInput>);
+      setFormOpen(true);
+    },
+  });
+
   // Stat cards
   const statCards: StatCardData[] = [
     { title: t('clusters.total'), value: String(stats.total), icon: 'list', color: 'primary' },
@@ -500,6 +518,7 @@ export const RulesPage: React.FC = () => {
   // Row actions
   const actions = [
     { icon: 'edit', onClick: (rule: FirewallRule) => handleOpen(rule), tooltip: 'common.edit', color: 'primary' as const },
+    { icon: 'copy', onClick: (rule: FirewallRule) => cloneEntity(rule), tooltip: 'common.clone', color: 'secondary' as const },
     { icon: 'delete', onClick: (rule: FirewallRule) => handleDelete(rule), tooltip: 'common.delete', color: 'error' as const },
   ];
 

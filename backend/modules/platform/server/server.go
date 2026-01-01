@@ -18,6 +18,7 @@ import (
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/metrics"
 	"csd-pilote/backend/modules/platform/middleware"
+	"csd-pilote/backend/modules/platform/ratelimit"
 	"csd-pilote/backend/modules/platform/websocket"
 )
 
@@ -88,8 +89,11 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	_ = websocket.GetHub()
 	log.Println("WebSocket hub initialized")
 
-	// Apply middleware
-	handler := corsMiddleware(cfg.CORS)(middleware.AuthMiddleware(mux))
+	// Apply middleware chain: RequestID -> Recovery -> CORS -> Auth -> Handler
+	handler := middleware.RequestIDMiddleware(
+		middleware.RecoveryMiddleware(
+			corsMiddleware(cfg.CORS)(
+				middleware.AuthMiddleware(mux))))
 
 	server := &Server{
 		cfg:           cfg,
@@ -130,6 +134,10 @@ func (s *Server) Start() error {
 	if err := s.httpServer.Shutdown(ctx); err != nil {
 		return fmt.Errorf("server shutdown failed: %w", err)
 	}
+
+	// Stop background services
+	websocket.GetHub().Stop()
+	ratelimit.GetRateLimiter().Stop()
 
 	database.Close()
 	log.Println("Server stopped")

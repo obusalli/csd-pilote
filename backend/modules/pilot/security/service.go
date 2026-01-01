@@ -9,8 +9,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"csd-pilote/backend/modules/platform/config"
 	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/events"
+	"csd-pilote/backend/modules/platform/pagination"
 )
 
 // Service handles business logic for firewall security
@@ -113,13 +115,8 @@ func (s *Service) GetRule(ctx context.Context, tenantID, id uuid.UUID) (*Firewal
 
 // ListRules retrieves all rules for a tenant
 func (s *Service) ListRules(ctx context.Context, tenantID uuid.UUID, filter *FirewallRuleFilter, limit, offset int) ([]FirewallRule, int64, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
-	return s.repo.ListRules(tenantID, filter, limit, offset)
+	p := pagination.Normalize(limit, offset)
+	return s.repo.ListRules(tenantID, filter, p.Limit, p.Offset)
 }
 
 // UpdateRule updates a firewall rule
@@ -407,13 +404,8 @@ func (s *Service) GetProfileWithRules(ctx context.Context, tenantID, id uuid.UUI
 
 // ListProfiles retrieves all profiles for a tenant
 func (s *Service) ListProfiles(ctx context.Context, tenantID uuid.UUID, filter *FirewallProfileFilter, limit, offset int) ([]FirewallProfile, int64, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
-	return s.repo.ListProfiles(tenantID, filter, limit, offset)
+	p := pagination.Normalize(limit, offset)
+	return s.repo.ListProfiles(tenantID, filter, p.Limit, p.Offset)
 }
 
 // UpdateProfile updates a firewall profile
@@ -623,13 +615,8 @@ func (s *Service) GetTemplate(ctx context.Context, tenantID, id uuid.UUID) (*Fir
 
 // ListTemplates retrieves all templates for a tenant
 func (s *Service) ListTemplates(ctx context.Context, tenantID uuid.UUID, filter *FirewallTemplateFilter, limit, offset int) ([]FirewallTemplate, int64, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
-	return s.repo.ListTemplates(tenantID, filter, limit, offset)
+	p := pagination.Normalize(limit, offset)
+	return s.repo.ListTemplates(tenantID, filter, p.Limit, p.Offset)
 }
 
 // UpdateTemplate updates a firewall template
@@ -882,8 +869,12 @@ func (s *Service) DeployProfile(ctx context.Context, token string, tenantID, use
 
 // runDeployment executes the deployment in background
 func (s *Service) runDeployment(deploymentID, tenantID uuid.UUID, token string, profile *FirewallProfile, agentID uuid.UUID) {
-	// Use timeout to prevent goroutine leaks (5 minutes max for deployment)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// Use timeout to prevent goroutine leaks
+	timeout := 5 * time.Minute
+	if cfg := config.GetConfig(); cfg != nil && cfg.Limits.FirewallDeploymentTimeout > 0 {
+		timeout = time.Duration(cfg.Limits.FirewallDeploymentTimeout) * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	s.repo.UpdateDeploymentStatus(deploymentID, DeploymentStatusDeploying, "Applying firewall rules...", "")
@@ -1524,13 +1515,8 @@ func (s *Service) GetDeployment(ctx context.Context, tenantID, id uuid.UUID) (*F
 
 // ListDeployments retrieves all deployments for a tenant
 func (s *Service) ListDeployments(ctx context.Context, tenantID uuid.UUID, filter *FirewallDeploymentFilter, limit, offset int) ([]FirewallDeployment, int64, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
-	return s.repo.ListDeployments(tenantID, filter, limit, offset)
+	p := pagination.Normalize(limit, offset)
+	return s.repo.ListDeployments(tenantID, filter, p.Limit, p.Offset)
 }
 
 // CountDeployments returns the total count of deployments

@@ -6,6 +6,7 @@ import (
 
 	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/graphql"
+	"csd-pilote/backend/modules/platform/graphql/crud"
 	"csd-pilote/backend/modules/platform/middleware"
 	"csd-pilote/backend/modules/platform/validation"
 )
@@ -137,53 +138,40 @@ func handleListClusters(ctx context.Context, w http.ResponseWriter, variables ma
 }
 
 func handleGetCluster(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
-	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
+	hctx := crud.ExtractTenantContext(ctx, w)
+	if hctx == nil {
+		return
+	}
+
+	id, ok := crud.ParseID(w, variables, "id")
 	if !ok {
-		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	id, err := graphql.ParseUUID(variables, "id")
+	cluster, err := service.Get(ctx, hctx.TenantID, id)
 	if err != nil {
-		graphql.WriteValidationError(w, err.Error())
+		crud.HandleError(w, err, "get cluster")
 		return
 	}
 
-	cluster, err := service.Get(ctx, tenantID, id)
-	if err != nil {
-		graphql.WriteError(w, err, "get cluster")
-		return
-	}
-
-	graphql.WriteSuccess(w, map[string]interface{}{
-		"cluster": cluster,
-	})
+	crud.WriteGetResult(w, "cluster", cluster)
 }
 
 func handleCreateCluster(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
-	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
-	if !ok {
-		graphql.WriteUnauthorized(w)
+	hctx := crud.ExtractFullContext(ctx, w)
+	if hctx == nil {
 		return
 	}
-
-	user, ok := middleware.GetUserFromContext(ctx)
-	if !ok {
-		graphql.WriteUnauthorized(w)
-		return
-	}
-
-	token, _ := middleware.GetTokenFromContext(ctx)
 
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
-		graphql.WriteValidationError(w, "input is required")
+		crud.HandleValidationError(w, "input is required")
 		return
 	}
 
 	input, err := parseClusterInput(inputRaw)
 	if err != nil {
-		graphql.WriteValidationError(w, err.Error())
+		crud.HandleValidationError(w, err.Error())
 		return
 	}
 
@@ -196,18 +184,18 @@ func handleCreateCluster(ctx context.Context, w http.ResponseWriter, variables m
 		v.MaxLength("description", input.Description, validation.MaxDescriptionLength)
 	}
 	if v.HasErrors() {
-		graphql.WriteValidationError(w, v.FirstError())
+		crud.HandleValidationError(w, v.FirstError())
 		return
 	}
 
-	cluster, err := service.Create(ctx, tenantID, user.UserID, input)
+	cluster, err := service.Create(ctx, hctx.TenantID, hctx.UserID, input)
 	if err != nil {
-		graphql.WriteError(w, err, "create cluster")
+		crud.HandleError(w, err, "create cluster")
 		return
 	}
 
 	// Audit log
-	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+	csdcore.GetClient().LogAuditAsync(ctx, hctx.Token, csdcore.AuditEntry{
 		Action:       "CREATE_CLUSTER",
 		ResourceType: "cluster",
 		ResourceID:   cluster.ID.String(),
@@ -218,9 +206,7 @@ func handleCreateCluster(ctx context.Context, w http.ResponseWriter, variables m
 		},
 	})
 
-	graphql.WriteSuccess(w, map[string]interface{}{
-		"createCluster": cluster,
-	})
+	crud.WriteCreateResult(w, "createCluster", cluster)
 }
 
 // parseClusterInput parses and validates cluster input

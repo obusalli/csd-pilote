@@ -16,6 +16,8 @@ type RateLimiter struct {
 	buckets  map[string]*Bucket
 	config   *Config
 	cleanupT *time.Ticker
+	stopCh   chan struct{}
+	stopped  bool
 }
 
 // Bucket represents a token bucket for a specific key
@@ -57,6 +59,13 @@ func DefaultConfig() *Config {
 			Burst:       10,
 		},
 		Limits: map[string]LimitConfig{
+			// ===== UNAUTHENTICATED REQUESTS =====
+			// Stricter limits for requests without valid auth
+			"__unauthenticated__": {
+				MaxRequests: 20,
+				Window:      time.Minute,
+				Burst:       5,
+			},
 			// ===== QUERIES =====
 			// List queries - moderate limits to prevent data dumps
 			"clusters": {
@@ -248,6 +257,7 @@ func NewRateLimiter(config *Config) *RateLimiter {
 	rl := &RateLimiter{
 		buckets: make(map[string]*Bucket),
 		config:  config,
+		stopCh:  make(chan struct{}),
 	}
 
 	// Start cleanup goroutine
@@ -310,17 +320,35 @@ func (rl *RateLimiter) makeKey(tenantID, userID uuid.UUID, operation string) str
 
 // cleanup removes expired buckets periodically
 func (rl *RateLimiter) cleanup() {
-	for range rl.cleanupT.C {
-		rl.mu.Lock()
-		now := time.Now()
-		for key, bucket := range rl.buckets {
-			// Remove buckets that haven't been used for 10 minutes
-			if now.Sub(bucket.lastRefill) > 10*time.Minute {
-				delete(rl.buckets, key)
+	for {
+		select {
+		case <-rl.stopCh:
+			return
+		case <-rl.cleanupT.C:
+			rl.mu.Lock()
+			now := time.Now()
+			for key, bucket := range rl.buckets {
+				// Remove buckets that haven't been used for 10 minutes
+				if now.Sub(bucket.lastRefill) > 10*time.Minute {
+					delete(rl.buckets, key)
+				}
 			}
+			rl.mu.Unlock()
 		}
-		rl.mu.Unlock()
 	}
+}
+
+// Stop stops the rate limiter cleanup goroutine
+func (rl *RateLimiter) Stop() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	if rl.stopped {
+		return
+	}
+	rl.stopped = true
+	rl.cleanupT.Stop()
+	close(rl.stopCh)
 }
 
 // Reset resets rate limits for a tenant (useful for testing)
@@ -350,10 +378,22 @@ func (e *RateLimitError) Error() string {
 
 // CheckRateLimit checks rate limit and returns an error if exceeded
 func CheckRateLimit(r *http.Request, operation string) error {
+	limiter := GetRateLimiter()
+
 	// Use typed context keys from middleware (not raw strings)
 	tenantID, ok := middleware.GetTenantIDFromContext(r.Context())
 	if !ok {
-		// No tenant, no rate limiting (unauthenticated request)
+		// No tenant - apply IP-based rate limiting for unauthenticated requests
+		clientIP := getClientIP(r)
+		if !limiter.AllowByIP(clientIP, operation) {
+			limit := limiter.getLimit("__unauthenticated__")
+			return &RateLimitError{
+				Operation:   operation,
+				RetryAfter:  limit.Window,
+				MaxRequests: limit.MaxRequests,
+				Window:      limit.Window,
+			}
+		}
 		return nil
 	}
 
@@ -363,7 +403,6 @@ func CheckRateLimit(r *http.Request, operation string) error {
 		userID = user.UserID
 	}
 
-	limiter := GetRateLimiter()
 	if !limiter.Allow(tenantID, userID, operation) {
 		limit := limiter.getLimit(operation)
 		return &RateLimitError{
@@ -375,6 +414,104 @@ func CheckRateLimit(r *http.Request, operation string) error {
 	}
 
 	return nil
+}
+
+// AllowByIP checks if an operation is allowed for a given IP address (unauthenticated requests)
+func (rl *RateLimiter) AllowByIP(ip string, operation string) bool {
+	key := "ip:" + ip + ":" + operation
+	limit := rl.getLimit("__unauthenticated__")
+
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	bucket, exists := rl.buckets[key]
+	now := time.Now()
+
+	if !exists {
+		bucket = &Bucket{
+			tokens:     float64(limit.MaxRequests + limit.Burst),
+			lastRefill: now,
+		}
+		rl.buckets[key] = bucket
+	}
+
+	// Refill tokens based on time elapsed
+	elapsed := now.Sub(bucket.lastRefill)
+	tokensToAdd := float64(limit.MaxRequests) * (elapsed.Seconds() / limit.Window.Seconds())
+	maxTokens := float64(limit.MaxRequests + limit.Burst)
+
+	bucket.tokens = min(bucket.tokens+tokensToAdd, maxTokens)
+	bucket.lastRefill = now
+
+	if bucket.tokens >= 1 {
+		bucket.tokens--
+		return true
+	}
+
+	return false
+}
+
+// getClientIP extracts the client IP from the request
+// Handles X-Forwarded-For and X-Real-IP headers for proxied requests
+func getClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header (may contain multiple IPs)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take the first IP (original client)
+		if idx := indexByte(xff, ','); idx != -1 {
+			return trimSpace(xff[:idx])
+		}
+		return trimSpace(xff)
+	}
+
+	// Check X-Real-IP header
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return trimSpace(xri)
+	}
+
+	// Fall back to RemoteAddr
+	addr := r.RemoteAddr
+	// Remove port if present
+	if idx := lastIndexByte(addr, ':'); idx != -1 {
+		// Check if it's IPv6 (has brackets)
+		if bracketIdx := lastIndexByte(addr, ']'); bracketIdx != -1 && bracketIdx < idx {
+			return addr[:idx]
+		} else if indexByte(addr, ':') == idx {
+			// Only one colon, so it's IPv4:port
+			return addr[:idx]
+		}
+	}
+	return addr
+}
+
+// Helper functions to avoid importing strings package
+func indexByte(s string, c byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == c {
+			return i
+		}
+	}
+	return -1
+}
+
+func lastIndexByte(s string, c byte) int {
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] == c {
+			return i
+		}
+	}
+	return -1
+}
+
+func trimSpace(s string) string {
+	start := 0
+	end := len(s)
+	for start < end && (s[start] == ' ' || s[start] == '\t') {
+		start++
+	}
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t') {
+		end--
+	}
+	return s[start:end]
 }
 
 // min returns the minimum of two float64 values

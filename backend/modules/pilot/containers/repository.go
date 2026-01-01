@@ -1,6 +1,8 @@
 package containers
 
 import (
+	"fmt"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
@@ -28,7 +30,7 @@ func (r *Repository) GetByID(tenantID, id uuid.UUID) (*ContainerEngine, error) {
 	var engine ContainerEngine
 	err := r.db.Where("tenant_id = ? AND id = ?", tenantID, id).First(&engine).Error
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get container engine %s: %w", id, err)
 	}
 	return &engine, nil
 }

@@ -21,13 +21,24 @@ type Config struct {
 	Logging    LoggingConfig    `yaml:"logging"`
 	CLI        CLIConfig        `yaml:"cli"`
 	Pagination PaginationConfig `yaml:"pagination"`
+	Limits     LimitsConfig     `yaml:"limits"`
 }
 
 // PaginationConfig configures pagination and count strategies
 type PaginationConfig struct {
+	DefaultLimit           int   `yaml:"default_limit"`
+	MaxLimit               int   `yaml:"max_limit"`
 	ExactCountThreshold    int64 `yaml:"exact_count_threshold"`
 	EstimateCountThreshold int64 `yaml:"estimate_count_threshold"`
 	AlwaysExactWithFilters bool  `yaml:"always_exact_with_filters"`
+}
+
+// LimitsConfig configures various resource limits
+type LimitsConfig struct {
+	MaxNodesPerCluster          int `yaml:"max_nodes_per_cluster"`
+	ClusterDeploymentTimeout    int `yaml:"cluster_deployment_timeout_minutes"`
+	HypervisorDeploymentTimeout int `yaml:"hypervisor_deployment_timeout_minutes"`
+	FirewallDeploymentTimeout   int `yaml:"firewall_deployment_timeout_minutes"`
 }
 
 // RawConfig represents the YAML file structure with common/backend/frontend/cli sections
@@ -172,11 +183,31 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	// Pagination defaults
+	if cfg.Pagination.DefaultLimit == 0 {
+		cfg.Pagination.DefaultLimit = 20
+	}
+	if cfg.Pagination.MaxLimit == 0 {
+		cfg.Pagination.MaxLimit = 100
+	}
 	if cfg.Pagination.ExactCountThreshold == 0 {
 		cfg.Pagination.ExactCountThreshold = GetDefaultInt64("backend.pagination.exact-count-threshold", 10000)
 	}
 	if cfg.Pagination.EstimateCountThreshold == 0 {
 		cfg.Pagination.EstimateCountThreshold = GetDefaultInt64("backend.pagination.estimate-count-threshold", 100000)
+	}
+
+	// Limits defaults
+	if cfg.Limits.MaxNodesPerCluster == 0 {
+		cfg.Limits.MaxNodesPerCluster = 1000
+	}
+	if cfg.Limits.ClusterDeploymentTimeout == 0 {
+		cfg.Limits.ClusterDeploymentTimeout = 30 // minutes
+	}
+	if cfg.Limits.HypervisorDeploymentTimeout == 0 {
+		cfg.Limits.HypervisorDeploymentTimeout = 15 // minutes
+	}
+	if cfg.Limits.FirewallDeploymentTimeout == 0 {
+		cfg.Limits.FirewallDeploymentTimeout = 5 // minutes
 	}
 
 	globalConfig = &cfg

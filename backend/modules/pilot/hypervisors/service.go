@@ -7,8 +7,12 @@ import (
 
 	"github.com/google/uuid"
 
+	"csd-pilote/backend/modules/platform/config"
 	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/events"
+	"csd-pilote/backend/modules/platform/logger"
+	"csd-pilote/backend/modules/platform/middleware"
+	"csd-pilote/backend/modules/platform/pagination"
 )
 
 // Service handles business logic for hypervisors
@@ -70,13 +74,8 @@ func (s *Service) Get(ctx context.Context, tenantID, id uuid.UUID) (*Hypervisor,
 
 // List retrieves all hypervisors for a tenant
 func (s *Service) List(ctx context.Context, tenantID uuid.UUID, filter *HypervisorFilter, limit, offset int) ([]Hypervisor, int64, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
-	return s.repo.List(tenantID, filter, limit, offset)
+	p := pagination.Normalize(limit, offset)
+	return s.repo.List(tenantID, filter, p.Limit, p.Offset)
 }
 
 // Update updates a hypervisor
@@ -163,7 +162,7 @@ func (s *Service) TestConnection(ctx context.Context, token string, tenantID, hy
 
 // Deploy deploys Libvirt on an agent
 func (s *Service) Deploy(ctx context.Context, tenantID, userID uuid.UUID, input *DeployHypervisorInput) (*Hypervisor, error) {
-	token, _ := ctx.Value("token").(string)
+	token, _ := middleware.GetTokenFromContext(ctx)
 
 	agentID, err := uuid.Parse(input.AgentID)
 	if err != nil {
@@ -201,61 +200,80 @@ func (s *Service) Deploy(ctx context.Context, tenantID, userID uuid.UUID, input 
 
 // runDeployment executes the libvirt deployment in background
 func (s *Service) runDeployment(hypervisorID, tenantID uuid.UUID, input *DeployHypervisorInput) {
-	// Use timeout to prevent goroutine leaks (15 minutes max for hypervisor deployment)
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	// Use timeout to prevent goroutine leaks
+	timeout := 15 * time.Minute
+	if cfg := config.GetConfig(); cfg != nil && cfg.Limits.HypervisorDeploymentTimeout > 0 {
+		timeout = time.Duration(cfg.Limits.HypervisorDeploymentTimeout) * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	driver := string(input.Driver)
+
+	logger.Info("[Hypervisor %s] Starting deployment: driver=%s", hypervisorID, driver)
 
 	// Background tasks use internal auth
 	token := ""
 
 	agentID, err := uuid.Parse(input.AgentID)
 	if err != nil {
+		logger.Error("[Hypervisor %s] Invalid agent ID: %s", hypervisorID, err.Error())
 		s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusError, "Invalid agent ID: "+err.Error())
 		return
 	}
 
 	// Step 1: Install libvirt packages and configure driver
+	logger.Info("[Hypervisor %s] Step 1: Installing libvirt packages for driver %s", hypervisorID, driver)
 	params := map[string]interface{}{
 		"driver": driver,
 	}
 
 	execution, err := s.client.DeployLibvirtTask(ctx, token, agentID, driver, "install", params)
 	if err != nil {
+		logger.Error("[Hypervisor %s] Failed to deploy libvirt: %s", hypervisorID, err.Error())
 		s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusError, "Failed to deploy libvirt: "+err.Error())
 		return
 	}
 
 	if execution.Status != "SUCCESS" {
+		logger.Error("[Hypervisor %s] Libvirt deployment failed: %s", hypervisorID, execution.Error)
 		s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusError, "Libvirt deployment failed: "+execution.Error)
 		return
 	}
+	logger.Info("[Hypervisor %s] Libvirt packages installed successfully", hypervisorID)
 
 	// Step 2: Start libvirtd service
+	logger.Info("[Hypervisor %s] Step 2: Starting libvirtd service", hypervisorID)
 	execution, err = s.client.DeployLibvirtTask(ctx, token, agentID, driver, "start", nil)
 	if err != nil {
+		logger.Error("[Hypervisor %s] Failed to start libvirtd: %s", hypervisorID, err.Error())
 		s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusError, "Failed to start libvirtd: "+err.Error())
 		return
 	}
 
 	if execution.Status != "SUCCESS" {
+		logger.Error("[Hypervisor %s] Failed to start libvirtd: %s", hypervisorID, execution.Error)
 		s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusError, "Failed to start libvirtd: "+execution.Error)
 		return
 	}
+	logger.Info("[Hypervisor %s] Libvirtd service started successfully", hypervisorID)
 
 	// Step 3: Verify connection works
+	logger.Info("[Hypervisor %s] Step 3: Verifying libvirt connection", hypervisorID)
 	execution, err = s.client.DeployLibvirtTask(ctx, token, agentID, driver, "verify", nil)
 	if err != nil {
+		logger.Error("[Hypervisor %s] Failed to verify libvirt: %s", hypervisorID, err.Error())
 		s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusError, "Failed to verify libvirt: "+err.Error())
 		return
 	}
 
 	if execution.Status != "SUCCESS" {
+		logger.Error("[Hypervisor %s] Libvirt verification failed: %s", hypervisorID, execution.Error)
 		s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusError, "Libvirt verification failed: "+execution.Error)
 		return
 	}
 
 	// Step 4: Update hypervisor status to connected
+	logger.Info("[Hypervisor %s] Deployment completed successfully", hypervisorID)
 	s.repo.UpdateStatus(tenantID, hypervisorID, HypervisorStatusConnected, "Libvirt deployed successfully")
 }
 

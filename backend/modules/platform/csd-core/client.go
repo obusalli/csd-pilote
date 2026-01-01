@@ -7,11 +7,21 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"csd-pilote/backend/modules/platform/config"
 	"github.com/google/uuid"
+)
+
+// Retry configuration
+const (
+	defaultMaxRetries     = 3
+	defaultInitialBackoff = 100 * time.Millisecond
+	defaultMaxBackoff     = 5 * time.Second
+	defaultBackoffFactor  = 2.0
 )
 
 // Client is a GraphQL client for csd-core
@@ -78,6 +88,7 @@ func (c *Client) Execute(ctx context.Context, token string, query string, variab
 }
 
 // ExecuteWithName executes a GraphQL query/mutation with an explicit operation name
+// Includes automatic retry with exponential backoff for transient errors
 func (c *Client) ExecuteWithName(ctx context.Context, token string, operationName string, query string, variables map[string]interface{}) (*GraphQLResponse, error) {
 	reqBody := GraphQLRequest{
 		Query:         query,
@@ -90,45 +101,140 @@ func (c *Client) ExecuteWithName(ctx context.Context, token string, operationNam
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+c.endpoint, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	var lastErr error
+	backoff := defaultInitialBackoff
+
+	for attempt := 0; attempt <= defaultMaxRetries; attempt++ {
+		// Check context before each attempt
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("context cancelled: %w", ctx.Err())
+		}
+
+		// Wait before retry (skip on first attempt)
+		if attempt > 0 {
+			log.Printf("[csd-core] Retry attempt %d/%d for operation %s after %v", attempt, defaultMaxRetries, operationName, backoff)
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("context cancelled during retry: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
+			// Increase backoff with factor, cap at max
+			backoff = time.Duration(float64(backoff) * defaultBackoffFactor)
+			if backoff > defaultMaxBackoff {
+				backoff = defaultMaxBackoff
+			}
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+c.endpoint, bytes.NewBuffer(jsonBody))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to execute request: %w", err)
+			if isRetryableError(err) {
+				continue
+			}
+			return nil, lastErr
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = fmt.Errorf("failed to read response: %w", err)
+			continue // I/O errors are retryable
+		}
+
+		if len(body) == 0 {
+			lastErr = fmt.Errorf("empty response from server (status: %d)", resp.StatusCode)
+			if isRetryableStatusCode(resp.StatusCode) {
+				continue
+			}
+			return nil, lastErr
+		}
+
+		// Only retry on 5xx server errors, not 4xx client errors
+		if resp.StatusCode >= 500 {
+			lastErr = fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var graphqlResp GraphQLResponse
+		if err := json.Unmarshal(body, &graphqlResp); err != nil {
+			return nil, fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if len(graphqlResp.Errors) > 0 {
+			return &graphqlResp, fmt.Errorf("graphql error: %s", graphqlResp.Errors[0].Message)
+		}
+
+		return &graphqlResp, nil
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+	return nil, fmt.Errorf("max retries (%d) exceeded: %w", defaultMaxRetries, lastErr)
+}
+
+// isRetryableError determines if an error is transient and should be retried
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
 	}
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+	// Network errors
+	var netErr net.Error
+	if ok := isNetError(err, &netErr); ok {
+		return netErr.Timeout() || netErr.Temporary()
 	}
 
-	if len(body) == 0 {
-		return nil, fmt.Errorf("empty response from server (status: %d)", resp.StatusCode)
+	// Connection refused, reset, etc.
+	errStr := err.Error()
+	retryableErrors := []string{
+		"connection refused",
+		"connection reset",
+		"no such host",
+		"i/o timeout",
+		"TLS handshake timeout",
+		"EOF",
+	}
+	for _, retryable := range retryableErrors {
+		if strings.Contains(strings.ToLower(errStr), strings.ToLower(retryable)) {
+			return true
+		}
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
-	}
+	return false
+}
 
-	var graphqlResp GraphQLResponse
-	if err := json.Unmarshal(body, &graphqlResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+// isNetError checks if err is a net.Error (helper for type assertion)
+func isNetError(err error, target *net.Error) bool {
+	netErr, ok := err.(net.Error)
+	if ok {
+		*target = netErr
 	}
+	return ok
+}
 
-	if len(graphqlResp.Errors) > 0 {
-		return &graphqlResp, fmt.Errorf("graphql error: %s", graphqlResp.Errors[0].Message)
+// isRetryableStatusCode determines if an HTTP status code indicates a retryable error
+func isRetryableStatusCode(code int) bool {
+	switch code {
+	case http.StatusBadGateway,         // 502
+		http.StatusServiceUnavailable,   // 503
+		http.StatusGatewayTimeout,       // 504
+		http.StatusInternalServerError:  // 500
+		return true
+	default:
+		return false
 	}
-
-	return &graphqlResp, nil
 }
 
 // ValidateToken validates a JWT token with csd-core and returns user info
@@ -831,6 +937,7 @@ func (c *Client) DecryptData(ctx context.Context, token string, encryptedData st
 }
 
 // RegisterService registers this service with csd-core
+// Includes automatic retry with exponential backoff for transient errors
 func (c *Client) RegisterService(ctx context.Context, serviceToken string, reg *ServiceRegistration) error {
 	regURL := c.baseURL + "/core/api/latest/services/register"
 
@@ -839,28 +946,66 @@ func (c *Client) RegisterService(ctx context.Context, serviceToken string, reg *
 		return fmt.Errorf("failed to marshal registration: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", regURL, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+	var lastErr error
+	backoff := defaultInitialBackoff
+
+	for attempt := 0; attempt <= defaultMaxRetries; attempt++ {
+		// Check context before each attempt
+		if ctx.Err() != nil {
+			return fmt.Errorf("context cancelled: %w", ctx.Err())
+		}
+
+		// Wait before retry (skip on first attempt)
+		if attempt > 0 {
+			log.Printf("[csd-core] Retry attempt %d/%d for service registration after %v", attempt, defaultMaxRetries, backoff)
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("context cancelled during retry: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
+			// Increase backoff with factor, cap at max
+			backoff = time.Duration(float64(backoff) * defaultBackoffFactor)
+			if backoff > defaultMaxBackoff {
+				backoff = defaultMaxBackoff
+			}
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", regURL, bytes.NewBuffer(jsonBody))
+		if err != nil {
+			return fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+serviceToken)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to execute request: %w", err)
+			if isRetryableError(err) {
+				continue
+			}
+			return lastErr
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = fmt.Errorf("failed to read response: %w", err)
+			continue // I/O errors are retryable
+		}
+
+		// Only retry on 5xx server errors
+		if resp.StatusCode >= 500 {
+			lastErr = fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+		}
+
+		return nil
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+serviceToken)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return fmt.Errorf("max retries (%d) exceeded for service registration: %w", defaultMaxRetries, lastErr)
 }

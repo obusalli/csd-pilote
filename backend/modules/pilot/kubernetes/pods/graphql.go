@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/middleware"
 	"csd-pilote/backend/modules/platform/validation"
@@ -267,6 +268,17 @@ func handleDeletePod(ctx context.Context, w http.ResponseWriter, variables map[s
 		graphql.WriteError(w, err, "delete pod")
 		return
 	}
+
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "DELETE_POD",
+		ResourceType: "k8s_pod",
+		ResourceID:   clusterID.String(),
+		Details: map[string]interface{}{
+			"name":      name,
+			"namespace": namespace,
+		},
+	})
 
 	graphql.WriteSuccess(w, map[string]interface{}{
 		"deletePod": true,

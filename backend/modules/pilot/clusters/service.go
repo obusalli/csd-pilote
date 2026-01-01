@@ -7,8 +7,12 @@ import (
 
 	"github.com/google/uuid"
 
+	"csd-pilote/backend/modules/platform/config"
 	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/events"
+	"csd-pilote/backend/modules/platform/logger"
+	"csd-pilote/backend/modules/platform/middleware"
+	"csd-pilote/backend/modules/platform/pagination"
 )
 
 // Service handles business logic for clusters
@@ -65,7 +69,7 @@ func (s *Service) Create(ctx context.Context, tenantID, userID uuid.UUID, input 
 
 // Deploy deploys a new Kubernetes cluster on selected agents
 func (s *Service) Deploy(ctx context.Context, tenantID, userID uuid.UUID, input *DeployClusterInput) (*Cluster, error) {
-	token, _ := ctx.Value("token").(string)
+	token, _ := middleware.GetTokenFromContext(ctx)
 
 	// Validate all agent IDs can deploy this distribution
 	capability := "kubernetes-deploy-" + string(input.Distribution)
@@ -101,7 +105,10 @@ func (s *Service) Deploy(ctx context.Context, tenantID, userID uuid.UUID, input 
 	nodes := make([]ClusterNode, 0, len(allAgentIDs))
 
 	for _, agentIDStr := range input.MasterNodes {
-		agentID, _ := uuid.Parse(agentIDStr)
+		agentID, err := uuid.Parse(agentIDStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid master node agent ID %q: %w", agentIDStr, err)
+		}
 		nodes = append(nodes, ClusterNode{
 			ClusterID: cluster.ID,
 			AgentID:   agentID,
@@ -111,7 +118,10 @@ func (s *Service) Deploy(ctx context.Context, tenantID, userID uuid.UUID, input 
 	}
 
 	for _, agentIDStr := range input.WorkerNodes {
-		agentID, _ := uuid.Parse(agentIDStr)
+		agentID, err := uuid.Parse(agentIDStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid worker node agent ID %q: %w", agentIDStr, err)
+		}
 		nodes = append(nodes, ClusterNode{
 			ClusterID: cluster.ID,
 			AgentID:   agentID,
@@ -134,10 +144,16 @@ func (s *Service) Deploy(ctx context.Context, tenantID, userID uuid.UUID, input 
 
 // runDeployment executes the cluster deployment in background
 func (s *Service) runDeployment(clusterID, tenantID uuid.UUID, input *DeployClusterInput, nodes []ClusterNode) {
-	// Use timeout to prevent goroutine leaks (30 minutes max for cluster deployment)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	// Use timeout to prevent goroutine leaks
+	timeout := 30 * time.Minute
+	if cfg := config.GetConfig(); cfg != nil && cfg.Limits.ClusterDeploymentTimeout > 0 {
+		timeout = time.Duration(cfg.Limits.ClusterDeploymentTimeout) * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	distribution := string(input.Distribution)
+
+	logger.Info("[Cluster %s] Starting deployment: distribution=%s, nodes=%d", clusterID, distribution, len(nodes))
 
 	// Get a system token for background operations
 	// In production, this would use a service account token
@@ -158,6 +174,7 @@ func (s *Service) runDeployment(clusterID, tenantID uuid.UUID, input *DeployClus
 	// Step 1: Deploy on first master node (init cluster)
 	if len(masterNodes) > 0 {
 		firstMaster := masterNodes[0]
+		logger.Info("[Cluster %s] Step 1: Initializing first master node %s", clusterID, firstMaster.AgentID)
 		s.repo.UpdateNodeStatus(firstMaster.ID, "DEPLOYING", "Initializing cluster...")
 
 		params := map[string]interface{}{
@@ -183,10 +200,12 @@ func (s *Service) runDeployment(clusterID, tenantID uuid.UUID, input *DeployClus
 			kubeconfig, _ = output["kubeconfig"].(string)
 		}
 
+		logger.Info("[Cluster %s] First master node initialized successfully", clusterID)
 		s.repo.UpdateNodeStatus(firstMaster.ID, "READY", "Master node initialized")
 	}
 
 	// Step 2: Deploy on additional master nodes
+	logger.Info("[Cluster %s] Step 2: Joining %d additional master nodes", clusterID, len(masterNodes)-1)
 	for i := 1; i < len(masterNodes); i++ {
 		node := masterNodes[i]
 		s.repo.UpdateNodeStatus(node.ID, "DEPLOYING", "Joining cluster as master...")
@@ -209,10 +228,12 @@ func (s *Service) runDeployment(clusterID, tenantID uuid.UUID, input *DeployClus
 			continue
 		}
 
+		logger.Info("[Cluster %s] Master node %s joined successfully", clusterID, node.AgentID)
 		s.repo.UpdateNodeStatus(node.ID, "READY", "Master node joined")
 	}
 
 	// Step 3: Deploy on worker nodes
+	logger.Info("[Cluster %s] Step 3: Joining %d worker nodes", clusterID, len(workerNodes))
 	for _, node := range workerNodes {
 		s.repo.UpdateNodeStatus(node.ID, "DEPLOYING", "Joining cluster as worker...")
 
@@ -234,10 +255,12 @@ func (s *Service) runDeployment(clusterID, tenantID uuid.UUID, input *DeployClus
 			continue
 		}
 
+		logger.Info("[Cluster %s] Worker node %s joined successfully", clusterID, node.AgentID)
 		s.repo.UpdateNodeStatus(node.ID, "READY", "Worker node joined")
 	}
 
 	// Step 4: Store kubeconfig as artifact
+	logger.Info("[Cluster %s] Step 4: Storing kubeconfig artifact", clusterID)
 	if kubeconfig != "" {
 		artifactKey := fmt.Sprintf("cluster-%s-kubeconfig", clusterID.String())
 		err := s.client.CreateArtifact(ctx, token, tenantID, artifactKey, "kubeconfig", kubeconfig)
@@ -251,12 +274,14 @@ func (s *Service) runDeployment(clusterID, tenantID uuid.UUID, input *DeployClus
 	}
 
 	// Step 5: Update cluster status to connected
+	logger.Info("[Cluster %s] Deployment completed successfully", clusterID)
 	s.repo.UpdateStatus(tenantID, clusterID, ClusterStatusConnected, "Cluster deployed successfully")
 }
 
 // handleDeploymentError handles deployment errors
 func (s *Service) handleDeploymentError(clusterID, tenantID, nodeID uuid.UUID, message string, err error) {
 	fullMessage := fmt.Sprintf("%s: %v", message, err)
+	logger.Error("[Cluster %s] Deployment error on node %s: %s", clusterID, nodeID, fullMessage)
 	s.repo.UpdateNodeStatus(nodeID, "ERROR", fullMessage)
 	s.repo.UpdateStatus(tenantID, clusterID, ClusterStatusError, fullMessage)
 }
@@ -268,13 +293,8 @@ func (s *Service) Get(ctx context.Context, tenantID, id uuid.UUID) (*Cluster, er
 
 // List retrieves all clusters for a tenant
 func (s *Service) List(ctx context.Context, tenantID uuid.UUID, filter *ClusterFilter, limit, offset int) ([]Cluster, int64, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
-	return s.repo.List(tenantID, filter, limit, offset)
+	p := pagination.Normalize(limit, offset)
+	return s.repo.List(tenantID, filter, p.Limit, p.Offset)
 }
 
 // Update updates a cluster

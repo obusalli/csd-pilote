@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/middleware"
 	"csd-pilote/backend/modules/platform/validation"
@@ -171,6 +172,16 @@ func handleCreateNamespace(ctx context.Context, w http.ResponseWriter, variables
 		return
 	}
 
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "CREATE_NAMESPACE",
+		ResourceType: "k8s_namespace",
+		ResourceID:   clusterID.String(),
+		Details: map[string]interface{}{
+			"name": namespace.Name,
+		},
+	})
+
 	graphql.WriteSuccess(w, map[string]interface{}{
 		"createNamespace": namespace,
 	})
@@ -209,6 +220,16 @@ func handleDeleteNamespace(ctx context.Context, w http.ResponseWriter, variables
 		graphql.WriteError(w, err, "delete namespace")
 		return
 	}
+
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "DELETE_NAMESPACE",
+		ResourceType: "k8s_namespace",
+		ResourceID:   clusterID.String(),
+		Details: map[string]interface{}{
+			"name": name,
+		},
+	})
 
 	graphql.WriteSuccess(w, map[string]interface{}{
 		"deleteNamespace": true,

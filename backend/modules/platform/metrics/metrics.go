@@ -79,29 +79,25 @@ func (m *Metrics) IncrementRateLimitHits() {
 // IncrementOperation increments operation count by type
 func (m *Metrics) IncrementOperation(operation string) {
 	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if m.OperationCounts[operation] == nil {
 		var count uint64
 		m.OperationCounts[operation] = &count
 	}
-	m.mu.Unlock()
-
-	m.mu.RLock()
 	atomic.AddUint64(m.OperationCounts[operation], 1)
-	m.mu.RUnlock()
 }
 
 // IncrementError increments error count by type
 func (m *Metrics) IncrementError(errorType string) {
 	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if m.ErrorCounts[errorType] == nil {
 		var count uint64
 		m.ErrorCounts[errorType] = &count
 	}
-	m.mu.Unlock()
-
-	m.mu.RLock()
 	atomic.AddUint64(m.ErrorCounts[errorType], 1)
-	m.mu.RUnlock()
 }
 
 // RecordLatency records request latency in milliseconds

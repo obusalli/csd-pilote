@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/middleware"
 	"csd-pilote/backend/modules/platform/validation"
@@ -179,6 +180,17 @@ func handleStartDomain(ctx context.Context, w http.ResponseWriter, variables map
 		return
 	}
 
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "START_DOMAIN",
+		ResourceType: "libvirt_domain",
+		ResourceID:   hypervisorID.String(),
+		Details: map[string]interface{}{
+			"domainUUID": domainUUID,
+			"name":       domain.Name,
+		},
+	})
+
 	graphql.WriteSuccess(w, map[string]interface{}{
 		"startDomain": domain,
 	})
@@ -217,6 +229,17 @@ func handleShutdownDomain(ctx context.Context, w http.ResponseWriter, variables 
 		graphql.WriteError(w, err, "shutdown domain")
 		return
 	}
+
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "SHUTDOWN_DOMAIN",
+		ResourceType: "libvirt_domain",
+		ResourceID:   hypervisorID.String(),
+		Details: map[string]interface{}{
+			"domainUUID": domainUUID,
+			"name":       domain.Name,
+		},
+	})
 
 	graphql.WriteSuccess(w, map[string]interface{}{
 		"shutdownDomain": domain,
@@ -257,6 +280,17 @@ func handleForceStopDomain(ctx context.Context, w http.ResponseWriter, variables
 		return
 	}
 
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "FORCE_STOP_DOMAIN",
+		ResourceType: "libvirt_domain",
+		ResourceID:   hypervisorID.String(),
+		Details: map[string]interface{}{
+			"domainUUID": domainUUID,
+			"name":       domain.Name,
+		},
+	})
+
 	graphql.WriteSuccess(w, map[string]interface{}{
 		"forceStopDomain": domain,
 	})
@@ -295,6 +329,17 @@ func handleRebootDomain(ctx context.Context, w http.ResponseWriter, variables ma
 		graphql.WriteError(w, err, "reboot domain")
 		return
 	}
+
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "REBOOT_DOMAIN",
+		ResourceType: "libvirt_domain",
+		ResourceID:   hypervisorID.String(),
+		Details: map[string]interface{}{
+			"domainUUID": domainUUID,
+			"name":       domain.Name,
+		},
+	})
 
 	graphql.WriteSuccess(w, map[string]interface{}{
 		"rebootDomain": domain,
@@ -335,6 +380,17 @@ func handleDeleteDomain(ctx context.Context, w http.ResponseWriter, variables ma
 		graphql.WriteError(w, err, "delete domain")
 		return
 	}
+
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "DELETE_DOMAIN",
+		ResourceType: "libvirt_domain",
+		ResourceID:   hypervisorID.String(),
+		Details: map[string]interface{}{
+			"domainUUID":    domainUUID,
+			"deleteVolumes": deleteVolumes,
+		},
+	})
 
 	graphql.WriteSuccess(w, map[string]interface{}{
 		"deleteDomain": true,
@@ -380,6 +436,18 @@ func handleSetDomainAutostart(ctx context.Context, w http.ResponseWriter, variab
 		graphql.WriteError(w, err, "set domain autostart")
 		return
 	}
+
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "SET_DOMAIN_AUTOSTART",
+		ResourceType: "libvirt_domain",
+		ResourceID:   hypervisorID.String(),
+		Details: map[string]interface{}{
+			"domainUUID": domainUUID,
+			"name":       domain.Name,
+			"autostart":  autostart,
+		},
+	})
 
 	graphql.WriteSuccess(w, map[string]interface{}{
 		"setDomainAutostart": domain,

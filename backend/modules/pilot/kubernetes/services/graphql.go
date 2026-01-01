@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/middleware"
 	"csd-pilote/backend/modules/platform/validation"
@@ -257,6 +258,18 @@ func handleCreateService(ctx context.Context, w http.ResponseWriter, variables m
 		return
 	}
 
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "CREATE_K8S_SERVICE",
+		ResourceType: "k8s_service",
+		ResourceID:   clusterID.String(),
+		Details: map[string]interface{}{
+			"name":      svc.Name,
+			"namespace": svc.Namespace,
+			"type":      input.Type,
+		},
+	})
+
 	graphql.WriteSuccess(w, map[string]interface{}{
 		"createK8sService": svc,
 	})
@@ -302,6 +315,17 @@ func handleDeleteService(ctx context.Context, w http.ResponseWriter, variables m
 		graphql.WriteError(w, err, "delete k8s service")
 		return
 	}
+
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "DELETE_K8S_SERVICE",
+		ResourceType: "k8s_service",
+		ResourceID:   clusterID.String(),
+		Details: map[string]interface{}{
+			"name":      name,
+			"namespace": namespace,
+		},
+	})
 
 	graphql.WriteSuccess(w, map[string]interface{}{
 		"deleteK8sService": true,

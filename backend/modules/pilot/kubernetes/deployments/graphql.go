@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/middleware"
 	"csd-pilote/backend/modules/platform/validation"
@@ -205,6 +206,19 @@ func handleCreateDeployment(ctx context.Context, w http.ResponseWriter, variable
 		return
 	}
 
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "CREATE_DEPLOYMENT",
+		ResourceType: "k8s_deployment",
+		ResourceID:   clusterID.String(),
+		Details: map[string]interface{}{
+			"name":      deployment.Name,
+			"namespace": deployment.Namespace,
+			"image":     input.Image,
+			"replicas":  input.Replicas,
+		},
+	})
+
 	graphql.WriteSuccess(w, map[string]interface{}{
 		"createDeployment": deployment,
 	})
@@ -265,6 +279,18 @@ func handleScaleDeployment(ctx context.Context, w http.ResponseWriter, variables
 		return
 	}
 
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "SCALE_DEPLOYMENT",
+		ResourceType: "k8s_deployment",
+		ResourceID:   clusterID.String(),
+		Details: map[string]interface{}{
+			"name":      name,
+			"namespace": namespace,
+			"replicas":  replicas,
+		},
+	})
+
 	graphql.WriteSuccess(w, map[string]interface{}{
 		"scaleDeployment": deployment,
 	})
@@ -312,6 +338,17 @@ func handleRestartDeployment(ctx context.Context, w http.ResponseWriter, variabl
 		return
 	}
 
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "RESTART_DEPLOYMENT",
+		ResourceType: "k8s_deployment",
+		ResourceID:   clusterID.String(),
+		Details: map[string]interface{}{
+			"name":      name,
+			"namespace": namespace,
+		},
+	})
+
 	graphql.WriteSuccess(w, map[string]interface{}{
 		"restartDeployment": deployment,
 	})
@@ -357,6 +394,17 @@ func handleDeleteDeployment(ctx context.Context, w http.ResponseWriter, variable
 		graphql.WriteError(w, err, "delete deployment")
 		return
 	}
+
+	// Audit log
+	csdcore.GetClient().LogAuditAsync(ctx, token, csdcore.AuditEntry{
+		Action:       "DELETE_DEPLOYMENT",
+		ResourceType: "k8s_deployment",
+		ResourceID:   clusterID.String(),
+		Details: map[string]interface{}{
+			"name":      name,
+			"namespace": namespace,
+		},
+	})
 
 	graphql.WriteSuccess(w, map[string]interface{}{
 		"deleteDeployment": true,

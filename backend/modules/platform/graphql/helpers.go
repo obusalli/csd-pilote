@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"csd-pilote/backend/modules/platform/middleware"
+	"csd-pilote/backend/modules/platform/pagination"
 	"csd-pilote/backend/modules/platform/validation"
 )
 
@@ -99,7 +100,7 @@ func ParseFilterSearch(filter map[string]interface{}) (string, error) {
 
 // ParsePagination extracts and validates pagination parameters
 func ParsePagination(variables map[string]interface{}) (limit, offset int) {
-	limit = 20
+	limit = pagination.DefaultLimit()
 	offset = 0
 
 	if l, ok := variables["limit"].(float64); ok {
@@ -233,7 +234,8 @@ var (
 	HypervisorStatusValues    = []string{"PENDING", "DEPLOYING", "CONNECTED", "DISCONNECTED", "ERROR"}
 	HypervisorModeValues      = []string{"CONNECT", "DEPLOY"}
 	LibvirtDriverValues       = []string{"qemu", "xen", "lxc"}
-	ContainerEngineTypeValues = []string{"DOCKER", "PODMAN"}
+	ContainerEngineTypeValues   = []string{"DOCKER", "PODMAN"}
+	ContainerEngineStatusValues = []string{"PENDING", "CONNECTED", "DISCONNECTED", "ERROR"}
 	ContainerActionValues     = []string{"start", "stop", "restart", "pause", "unpause", "kill", "remove"}
 	RuleChainValues           = []string{"INPUT", "OUTPUT", "FORWARD", "PREROUTING", "POSTROUTING"}
 	RuleProtocolValues        = []string{"tcp", "udp", "icmp", "icmpv6", "all", "any"}

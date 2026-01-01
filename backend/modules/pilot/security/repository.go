@@ -90,10 +90,23 @@ func (r *Repository) DeleteRule(tenantID, id uuid.UUID) error {
 
 // BulkDeleteRules deletes multiple rules by IDs
 func (r *Repository) BulkDeleteRules(tenantID uuid.UUID, ids []uuid.UUID) (int64, error) {
-	// First remove from any profiles
-	r.db.Where("rule_id IN ?", ids).Delete(&FirewallProfileRule{})
-	result := r.db.Where("tenant_id = ? AND id IN ?", tenantID, ids).Delete(&FirewallRule{})
-	return result.RowsAffected, result.Error
+	var rowsAffected int64
+
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		// First remove from any profiles
+		if err := tx.Where("rule_id IN ?", ids).Delete(&FirewallProfileRule{}).Error; err != nil {
+			return err
+		}
+		// Then delete the rules
+		result := tx.Where("tenant_id = ? AND id IN ?", tenantID, ids).Delete(&FirewallRule{})
+		if result.Error != nil {
+			return result.Error
+		}
+		rowsAffected = result.RowsAffected
+		return nil
+	})
+
+	return rowsAffected, err
 }
 
 // CountRules returns the total count of rules for a tenant
@@ -396,12 +409,14 @@ func (r *Repository) ListDeployments(tenantID uuid.UUID, filter *FirewallDeploym
 			query = query.Where("agent_name ILIKE ? OR status_message ILIKE ?", search, search)
 		}
 		if filter.ProfileID != nil {
-			profileID, _ := uuid.Parse(*filter.ProfileID)
-			query = query.Where("profile_id = ?", profileID)
+			if profileID, err := uuid.Parse(*filter.ProfileID); err == nil {
+				query = query.Where("profile_id = ?", profileID)
+			}
 		}
 		if filter.AgentID != nil {
-			agentID, _ := uuid.Parse(*filter.AgentID)
-			query = query.Where("agent_id = ?", agentID)
+			if agentID, err := uuid.Parse(*filter.AgentID); err == nil {
+				query = query.Where("agent_id = ?", agentID)
+			}
 		}
 		if filter.Action != nil {
 			query = query.Where("action = ?", *filter.Action)

@@ -8,6 +8,7 @@ import (
 
 	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/events"
+	"csd-pilote/backend/modules/platform/pagination"
 )
 
 // Service handles business logic for container engines
@@ -68,13 +69,8 @@ func (s *Service) Get(ctx context.Context, tenantID, id uuid.UUID) (*ContainerEn
 
 // List retrieves all container engines for a tenant
 func (s *Service) List(ctx context.Context, tenantID uuid.UUID, filter *ContainerEngineFilter, limit, offset int) ([]ContainerEngine, int64, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
-	return s.repo.List(tenantID, filter, limit, offset)
+	p := pagination.Normalize(limit, offset)
+	return s.repo.List(tenantID, filter, p.Limit, p.Offset)
 }
 
 // Update updates a container engine

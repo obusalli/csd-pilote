@@ -8,6 +8,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+
+	"csd-pilote/backend/modules/platform/config"
 )
 
 // Limits defines validation limits
@@ -318,11 +320,24 @@ func ValidateDescription(description string) error {
 
 // ValidatePagination validates limit and offset parameters
 func ValidatePagination(limit, offset int) (int, int, error) {
-	if limit <= 0 {
-		limit = 20
+	defaultLimit := 20
+	maxLimit := MaxPaginationLimit
+
+	// Use config values if available
+	if cfg := config.GetConfig(); cfg != nil {
+		if cfg.Pagination.DefaultLimit > 0 {
+			defaultLimit = cfg.Pagination.DefaultLimit
+		}
+		if cfg.Pagination.MaxLimit > 0 {
+			maxLimit = cfg.Pagination.MaxLimit
+		}
 	}
-	if limit > MaxPaginationLimit {
-		limit = MaxPaginationLimit
+
+	if limit <= 0 {
+		limit = defaultLimit
+	}
+	if limit > maxLimit {
+		limit = maxLimit
 	}
 	if offset < 0 {
 		offset = 0

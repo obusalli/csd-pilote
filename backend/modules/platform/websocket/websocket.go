@@ -57,6 +57,8 @@ type Hub struct {
 	register   chan *Client
 	unregister chan *Client
 	broadcast  chan *BroadcastMessage
+	stop       chan struct{}
+	stopped    bool
 }
 
 // BroadcastMessage represents a message to broadcast
@@ -76,6 +78,7 @@ func GetHub() *Hub {
 			register:   make(chan *Client),
 			unregister: make(chan *Client),
 			broadcast:  make(chan *BroadcastMessage, 256),
+			stop:       make(chan struct{}),
 		}
 		go globalHub.run()
 		globalHub.subscribeToEvents()
@@ -85,8 +88,25 @@ func GetHub() *Hub {
 
 // run starts the hub's main loop
 func (h *Hub) run() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[WebSocket] Hub panic recovered: %v", r)
+		}
+	}()
+
 	for {
 		select {
+		case <-h.stop:
+			// Close all client connections on shutdown
+			h.mu.Lock()
+			for _, client := range h.clients {
+				close(client.Send)
+			}
+			h.clients = make(map[string]*Client)
+			h.mu.Unlock()
+			log.Println("[WebSocket] Hub stopped")
+			return
+
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client.ID] = client
@@ -117,6 +137,19 @@ func (h *Hub) run() {
 			h.mu.RUnlock()
 		}
 	}
+}
+
+// Stop gracefully stops the hub
+func (h *Hub) Stop() {
+	h.mu.Lock()
+	if h.stopped {
+		h.mu.Unlock()
+		return
+	}
+	h.stopped = true
+	h.mu.Unlock()
+
+	close(h.stop)
 }
 
 // subscribeToEvents subscribes to all events and broadcasts them
@@ -199,6 +232,9 @@ func HandleWebSocket(w http.ResponseWriter, r *http.Request, tenantID, userID uu
 // writePump pumps messages from the hub to the websocket connection
 func (c *Client) writePump() {
 	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[WebSocket] writePump panic for client %s: %v", c.ID, r)
+		}
 		c.Conn.Close()
 	}()
 
@@ -213,6 +249,9 @@ func (c *Client) writePump() {
 // readPump pumps messages from the websocket connection to the hub
 func (c *Client) readPump(hub *Hub) {
 	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[WebSocket] readPump panic for client %s: %v", c.ID, r)
+		}
 		hub.unregister <- c
 		c.Conn.Close()
 	}()

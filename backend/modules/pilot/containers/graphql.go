@@ -106,7 +106,7 @@ func handleListContainerEngines(ctx context.Context, w http.ResponseWriter, vari
 			filter.Search = &search
 		}
 		if status, ok := f["status"].(string); ok {
-			if err := graphql.ValidateEnum(status, graphql.HypervisorStatusValues, "status"); err != nil {
+			if err := graphql.ValidateEnum(status, graphql.ContainerEngineStatusValues, "status"); err != nil {
 				graphql.WriteValidationError(w, err.Error())
 				return
 			}

@@ -1,6 +1,8 @@
 package hypervisors
 
 import (
+	"fmt"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
@@ -28,7 +30,7 @@ func (r *Repository) GetByID(tenantID, id uuid.UUID) (*Hypervisor, error) {
 	var hypervisor Hypervisor
 	err := r.db.Where("tenant_id = ? AND id = ?", tenantID, id).First(&hypervisor).Error
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get hypervisor %s: %w", id, err)
 	}
 	return &hypervisor, nil
 }

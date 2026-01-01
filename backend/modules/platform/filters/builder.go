@@ -3,15 +3,21 @@ package filters
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"gorm.io/gorm"
 )
 
+// validColumnNameRegex ensures column names only contain safe characters
+// Allows alphanumeric, underscore, and dot (for table.column)
+var validColumnNameRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_.]*$`)
+
 // QueryBuilder builds GORM queries from advanced filters
 type QueryBuilder struct {
 	db            *gorm.DB
 	fieldMappings map[string]string // Maps JSON field names to DB column names
+	strictMode    bool              // If true, only allow fields in fieldMappings
 }
 
 // NewQueryBuilder creates a new query builder
@@ -19,7 +25,14 @@ func NewQueryBuilder(db *gorm.DB) *QueryBuilder {
 	return &QueryBuilder{
 		db:            db,
 		fieldMappings: make(map[string]string),
+		strictMode:    false,
 	}
+}
+
+// WithStrictMode enables strict mode (only allows mapped fields)
+func (qb *QueryBuilder) WithStrictMode() *QueryBuilder {
+	qb.strictMode = true
+	return qb
 }
 
 // WithFieldMapping adds a field mapping from JSON name to DB column
@@ -37,12 +50,39 @@ func (qb *QueryBuilder) WithFieldMappings(mappings map[string]string) *QueryBuil
 }
 
 // getColumnName returns the DB column name for a JSON field
+// Returns empty string if the field is invalid (for security)
 func (qb *QueryBuilder) getColumnName(field string) string {
+	// Check if field is in explicit mappings first
 	if col, ok := qb.fieldMappings[field]; ok {
+		// Validate mapped column name too (defense in depth)
+		if !isValidColumnName(col) {
+			return ""
+		}
 		return col
 	}
-	// Convert camelCase to snake_case by default
-	return toSnakeCase(field)
+
+	// In strict mode, reject fields not in mappings
+	if qb.strictMode {
+		return ""
+	}
+
+	// Convert camelCase to snake_case
+	column := toSnakeCase(field)
+
+	// Validate the resulting column name
+	if !isValidColumnName(column) {
+		return ""
+	}
+
+	return column
+}
+
+// isValidColumnName validates that a column name is safe for SQL
+func isValidColumnName(name string) bool {
+	if name == "" || len(name) > 64 {
+		return false
+	}
+	return validColumnNameRegex.MatchString(name)
 }
 
 // toSnakeCase converts camelCase to snake_case
@@ -141,6 +181,11 @@ func (qb *QueryBuilder) buildGroup(group FilterGroup) (string, []interface{}) {
 func (qb *QueryBuilder) buildCondition(cond FilterCondition) (string, []interface{}) {
 	column := qb.getColumnName(cond.Field)
 
+	// Skip invalid column names (security: prevents SQL injection)
+	if column == "" {
+		return "", nil
+	}
+
 	switch cond.Operator {
 	case OpEquals:
 		return fmt.Sprintf("%s = ?", column), []interface{}{cond.Value}
@@ -223,6 +268,12 @@ func (qb *QueryBuilder) buildCondition(cond FilterCondition) (string, []interfac
 func (qb *QueryBuilder) ApplySort(query *gorm.DB, sortFields []SortField) *gorm.DB {
 	for _, sf := range sortFields {
 		column := qb.getColumnName(sf.Field)
+
+		// Skip invalid column names (security: prevents SQL injection)
+		if column == "" {
+			continue
+		}
+
 		dir := "ASC"
 		if sf.Direction == SortDesc {
 			dir = "DESC"

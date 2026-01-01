@@ -58,10 +58,10 @@ const (
 // FirewallRule represents an individual nftables rule
 type FirewallRule struct {
 	ID          uuid.UUID    `json:"id" gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	TenantID    uuid.UUID    `json:"tenantId" gorm:"type:uuid;not null;index"`
+	TenantID    uuid.UUID    `json:"tenantId" gorm:"type:uuid;not null;index:idx_rule_tenant;index:idx_rule_tenant_chain_enabled"`
 	Name        string       `json:"name" gorm:"not null"`
 	Description string       `json:"description"`
-	Chain       RuleChain    `json:"chain" gorm:"not null;default:'INPUT'"`
+	Chain       RuleChain    `json:"chain" gorm:"not null;default:'INPUT';index:idx_rule_tenant_chain_enabled"`
 	Priority    int          `json:"priority" gorm:"default:0"`
 	Protocol    RuleProtocol `json:"protocol"`
 	SourceIP    string       `json:"sourceIp"`
@@ -92,7 +92,7 @@ type FirewallRule struct {
 
 	RuleExpr  string    `json:"ruleExpr"` // Raw nftables expression (advanced)
 	Comment   string    `json:"comment"`
-	Enabled   bool      `json:"enabled" gorm:"default:true"`
+	Enabled   bool      `json:"enabled" gorm:"default:true;index:idx_rule_tenant_chain_enabled"`
 	CreatedAt time.Time `json:"createdAt" gorm:"autoCreateTime"`
 	UpdatedAt time.Time `json:"updatedAt" gorm:"autoUpdateTime"`
 	CreatedBy uuid.UUID `json:"createdBy" gorm:"type:uuid"`
@@ -157,11 +157,11 @@ type FirewallRuleFilter struct {
 // FirewallProfile represents a group of firewall rules
 type FirewallProfile struct {
 	ID          uuid.UUID      `json:"id" gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	TenantID    uuid.UUID      `json:"tenantId" gorm:"type:uuid;not null;index"`
+	TenantID    uuid.UUID      `json:"tenantId" gorm:"type:uuid;not null;index:idx_profile_tenant;index:idx_profile_tenant_default_enabled"`
 	Name        string         `json:"name" gorm:"not null"`
 	Description string         `json:"description"`
-	IsDefault   bool           `json:"isDefault" gorm:"default:false"`
-	Enabled     bool           `json:"enabled" gorm:"default:true"`
+	IsDefault   bool           `json:"isDefault" gorm:"default:false;index:idx_profile_tenant_default_enabled"`
+	Enabled     bool           `json:"enabled" gorm:"default:true;index:idx_profile_tenant_default_enabled"`
 
 	// Default policies
 	InputPolicy   string `json:"inputPolicy" gorm:"default:'drop'"`   // Default policy for input chain (accept/drop)
@@ -341,12 +341,12 @@ const (
 // FirewallDeployment tracks deployments of profiles to agents
 type FirewallDeployment struct {
 	ID            uuid.UUID         `json:"id" gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	TenantID      uuid.UUID         `json:"tenantId" gorm:"type:uuid;not null;index"`
+	TenantID      uuid.UUID         `json:"tenantId" gorm:"type:uuid;not null;index:idx_deploy_tenant;index:idx_deploy_tenant_status;index:idx_deploy_tenant_agent"`
 	ProfileID     *uuid.UUID        `json:"profileId" gorm:"type:uuid"` // Optional: null for audit/flush
-	AgentID       uuid.UUID         `json:"agentId" gorm:"type:uuid;not null"`
+	AgentID       uuid.UUID         `json:"agentId" gorm:"type:uuid;not null;index:idx_deploy_tenant_agent"`
 	AgentName     string            `json:"agentName"`
 	Action        DeploymentAction  `json:"action" gorm:"not null;default:'APPLY'"`
-	Status        DeploymentStatus  `json:"status" gorm:"default:'PENDING'"`
+	Status        DeploymentStatus  `json:"status" gorm:"default:'PENDING';index:idx_deploy_tenant_status"`
 	StatusMessage string            `json:"statusMessage"`
 	PlaybookID    string            `json:"playbookId"`    // csd-core playbook execution ID
 	RulesSnapshot string            `json:"rulesSnapshot" gorm:"type:jsonb"` // Snapshot of rules at deploy time

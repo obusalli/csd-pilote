@@ -2,14 +2,12 @@ package clusters
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
-
-	"github.com/google/uuid"
 
 	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/middleware"
+	"csd-pilote/backend/modules/platform/validation"
 )
 
 func init() {
@@ -81,83 +79,97 @@ func init() {
 func handleListClusters(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	limit := 20
-	offset := 0
-	if l, ok := variables["limit"].(float64); ok {
-		limit = int(l)
-	}
-	if o, ok := variables["offset"].(float64); ok {
-		offset = int(o)
-	}
+	// Use validated pagination with max limits
+	limit, offset := graphql.ParsePagination(variables)
 
 	var filter *ClusterFilter
 	if f, ok := variables["filter"].(map[string]interface{}); ok {
 		filter = &ClusterFilter{}
 		if search, ok := f["search"].(string); ok {
+			// Validate search length
+			if len(search) > validation.MaxSearchLength {
+				graphql.WriteValidationError(w, "search query too long")
+				return
+			}
 			filter.Search = &search
 		}
 		if status, ok := f["status"].(string); ok {
+			// Validate enum
+			if err := graphql.ValidateEnum(status, graphql.ClusterStatusValues, "status"); err != nil {
+				graphql.WriteValidationError(w, err.Error())
+				return
+			}
 			s := ClusterStatus(status)
 			filter.Status = &s
+		}
+		if mode, ok := f["mode"].(string); ok {
+			if err := graphql.ValidateEnum(mode, graphql.ClusterModeValues, "mode"); err != nil {
+				graphql.WriteValidationError(w, err.Error())
+				return
+			}
+			m := ClusterMode(mode)
+			filter.Mode = &m
+		}
+		if distro, ok := f["distribution"].(string); ok {
+			if err := graphql.ValidateEnum(distro, graphql.KubernetesDistroValues, "distribution"); err != nil {
+				graphql.WriteValidationError(w, err.Error())
+				return
+			}
+			d := KubernetesDistribution(distro)
+			filter.Distribution = &d
 		}
 	}
 
 	clusters, count, err := service.List(ctx, tenantID, filter, limit, offset)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list clusters")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"clusters":      clusters,
 		"clustersCount": count,
-	}))
+	})
 }
 
 func handleGetCluster(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	cluster, err := service.Get(ctx, tenantID, id)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "get cluster")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"cluster": cluster,
-	}))
+	})
 }
 
 func handleCreateCluster(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	user, ok := middleware.GetUserFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
@@ -165,43 +177,32 @@ func handleCreateCluster(ctx context.Context, w http.ResponseWriter, variables m
 
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
+		graphql.WriteValidationError(w, "input is required")
 		return
 	}
 
-	input := &ClusterInput{}
-	if name, ok := inputRaw["name"].(string); ok {
-		input.Name = name
-	}
-	if description, ok := inputRaw["description"].(string); ok {
-		input.Description = description
-	}
-	if agentId, ok := inputRaw["agentId"].(string); ok {
-		input.AgentID = agentId
-	}
-	if artifactKey, ok := inputRaw["artifactKey"].(string); ok {
-		input.ArtifactKey = artifactKey
-	}
-	if distribution, ok := inputRaw["distribution"].(string); ok {
-		input.Distribution = KubernetesDistribution(distribution)
+	input, err := parseClusterInput(inputRaw)
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
 	}
 
-	if input.Name == "" {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
-		return
+	// Validate required fields
+	v := validation.NewValidator()
+	v.Required("name", input.Name).MaxLength("name", input.Name, validation.MaxNameLength)
+	v.Required("agentId", input.AgentID).UUID("agentId", input.AgentID)
+	v.Required("artifactKey", input.ArtifactKey).MaxLength("artifactKey", input.ArtifactKey, validation.MaxNameLength)
+	if input.Description != "" {
+		v.MaxLength("description", input.Description, validation.MaxDescriptionLength)
 	}
-	if input.AgentID == "" {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("agentId is required"))
-		return
-	}
-	if input.ArtifactKey == "" {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("artifactKey is required"))
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	cluster, err := service.Create(ctx, tenantID, user.UserID, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "create cluster")
 		return
 	}
 
@@ -217,39 +218,15 @@ func handleCreateCluster(ctx context.Context, w http.ResponseWriter, variables m
 		},
 	})
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"createCluster": cluster,
-	}))
+	})
 }
 
-func handleUpdateCluster(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
-	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
-		return
-	}
-
-	token, _ := middleware.GetTokenFromContext(ctx)
-
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
-	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
-		return
-	}
-
-	inputRaw, ok := variables["input"].(map[string]interface{})
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
-		return
-	}
-
+// parseClusterInput parses and validates cluster input
+func parseClusterInput(inputRaw map[string]interface{}) (*ClusterInput, error) {
 	input := &ClusterInput{}
+
 	if name, ok := inputRaw["name"].(string); ok {
 		input.Name = name
 	}
@@ -263,12 +240,61 @@ func handleUpdateCluster(ctx context.Context, w http.ResponseWriter, variables m
 		input.ArtifactKey = artifactKey
 	}
 	if distribution, ok := inputRaw["distribution"].(string); ok {
+		if err := graphql.ValidateEnum(distribution, graphql.KubernetesDistroValues, "distribution"); err != nil {
+			return nil, err
+		}
 		input.Distribution = KubernetesDistribution(distribution)
+	}
+
+	return input, nil
+}
+
+func handleUpdateCluster(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
+	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
+	if !ok {
+		graphql.WriteUnauthorized(w)
+		return
+	}
+
+	token, _ := middleware.GetTokenFromContext(ctx)
+
+	id, err := graphql.ParseUUID(variables, "id")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	inputRaw, ok := variables["input"].(map[string]interface{})
+	if !ok {
+		graphql.WriteValidationError(w, "input is required")
+		return
+	}
+
+	input, err := parseClusterInput(inputRaw)
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	// Validate field lengths if provided
+	v := validation.NewValidator()
+	if input.Name != "" {
+		v.MaxLength("name", input.Name, validation.MaxNameLength)
+	}
+	if input.Description != "" {
+		v.MaxLength("description", input.Description, validation.MaxDescriptionLength)
+	}
+	if input.AgentID != "" {
+		v.UUID("agentId", input.AgentID)
+	}
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
+		return
 	}
 
 	cluster, err := service.Update(ctx, tenantID, id, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "update cluster")
 		return
 	}
 
@@ -282,29 +308,23 @@ func handleUpdateCluster(ctx context.Context, w http.ResponseWriter, variables m
 		},
 	})
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"updateCluster": cluster,
-	}))
+	})
 }
 
 func handleDeleteCluster(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
@@ -316,7 +336,7 @@ func handleDeleteCluster(ctx context.Context, w http.ResponseWriter, variables m
 	}
 
 	if err := service.Delete(ctx, tenantID, id); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "delete cluster")
 		return
 	}
 
@@ -330,43 +350,37 @@ func handleDeleteCluster(ctx context.Context, w http.ResponseWriter, variables m
 		},
 	})
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"deleteCluster": true,
-	}))
+	})
 }
 
 func handleTestClusterConnection(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	agentIDStr, _ := variables["agentId"].(string)
-	agentID, _ := uuid.Parse(agentIDStr)
+	// agentId is optional - parse it if provided
+	agentID, _ := graphql.ParseUUID(variables, "agentId")
 
 	if err := service.TestConnection(ctx, token, tenantID, id, agentID); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "test cluster connection")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"testClusterConnection": true,
-	}))
+	})
 }
 
 func handleListKubernetesAgents(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
@@ -375,13 +389,13 @@ func handleListKubernetesAgents(ctx context.Context, w http.ResponseWriter, vari
 	client := csdcore.GetClient()
 	agents, err := client.ListAgentsByCapability(ctx, token, "kubernetes")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list kubernetes agents")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"kubernetesAgents": agents,
-	}))
+	})
 }
 
 func handleListKubernetesDeployAgents(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
@@ -404,7 +418,7 @@ func handleListKubernetesDeployAgents(ctx context.Context, w http.ResponseWriter
 	}
 
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list kubernetes deploy agents")
 		return
 	}
 
@@ -430,9 +444,9 @@ func handleListKubernetesDeployAgents(ctx context.Context, w http.ResponseWriter
 		})
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"kubernetesDeployAgents": enrichedAgents,
-	}))
+	})
 }
 
 func handleListKubernetesDistributions(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
@@ -470,9 +484,9 @@ func handleListKubernetesDistributions(ctx context.Context, w http.ResponseWrite
 		},
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"kubernetesDistributions": distributions,
-	}))
+	})
 }
 
 func handleListAllKubernetesDistributions(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
@@ -548,21 +562,21 @@ func handleListAllKubernetesDistributions(ctx context.Context, w http.ResponseWr
 		},
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"allKubernetesDistributions": distributions,
-	}))
+	})
 }
 
 func handleDeployCluster(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	user, ok := middleware.GetUserFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
@@ -570,7 +584,7 @@ func handleDeployCluster(ctx context.Context, w http.ResponseWriter, variables m
 
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
+		graphql.WriteValidationError(w, "input is required")
 		return
 	}
 
@@ -582,12 +596,22 @@ func handleDeployCluster(ctx context.Context, w http.ResponseWriter, variables m
 		input.Description = description
 	}
 	if distribution, ok := inputRaw["distribution"].(string); ok {
+		// Validate distribution enum
+		if err := graphql.ValidateEnum(distribution, graphql.KubernetesDistroValues, "distribution"); err != nil {
+			graphql.WriteValidationError(w, err.Error())
+			return
+		}
 		input.Distribution = KubernetesDistribution(distribution)
 	}
 	if version, ok := inputRaw["version"].(string); ok {
 		input.Version = version
 	}
 	if masterNodes, ok := inputRaw["masterNodes"].([]interface{}); ok {
+		// Limit number of nodes
+		if len(masterNodes) > validation.MaxArrayLength {
+			graphql.WriteValidationError(w, "too many master nodes")
+			return
+		}
 		input.MasterNodes = make([]string, 0, len(masterNodes))
 		for _, n := range masterNodes {
 			if s, ok := n.(string); ok {
@@ -596,6 +620,11 @@ func handleDeployCluster(ctx context.Context, w http.ResponseWriter, variables m
 		}
 	}
 	if workerNodes, ok := inputRaw["workerNodes"].([]interface{}); ok {
+		// Limit number of nodes
+		if len(workerNodes) > validation.MaxArrayLength {
+			graphql.WriteValidationError(w, "too many worker nodes")
+			return
+		}
 		input.WorkerNodes = make([]string, 0, len(workerNodes))
 		for _, n := range workerNodes {
 			if s, ok := n.(string); ok {
@@ -605,22 +634,28 @@ func handleDeployCluster(ctx context.Context, w http.ResponseWriter, variables m
 	}
 
 	// Validation
-	if input.Name == "" {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	v := validation.NewValidator()
+	v.Required("name", input.Name).MaxLength("name", input.Name, validation.MaxNameLength)
+	if input.Description != "" {
+		v.MaxLength("description", input.Description, validation.MaxDescriptionLength)
+	}
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
+
 	if input.Distribution == "" {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("distribution is required"))
+		graphql.WriteValidationError(w, "distribution is required")
 		return
 	}
 	if len(input.MasterNodes) == 0 {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("at least one master node is required"))
+		graphql.WriteValidationError(w, "at least one master node is required")
 		return
 	}
 
 	cluster, err := service.Deploy(ctx, tenantID, user.UserID, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "deploy cluster")
 		return
 	}
 
@@ -637,47 +672,30 @@ func handleDeployCluster(ctx context.Context, w http.ResponseWriter, variables m
 		},
 	})
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"deployCluster": cluster,
-	}))
+	})
 }
 
 func handleBulkDeleteClusters(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	idsRaw, ok := variables["ids"].([]interface{})
-	if !ok || len(idsRaw) == 0 {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("ids is required"))
-		return
-	}
-
-	ids := make([]uuid.UUID, 0, len(idsRaw))
-	for _, idRaw := range idsRaw {
-		idStr, ok := idRaw.(string)
-		if !ok {
-			continue
-		}
-		id, err := uuid.Parse(idStr)
-		if err != nil {
-			continue
-		}
-		ids = append(ids, id)
-	}
-
-	if len(ids) == 0 {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("no valid ids provided"))
+	// Use validated bulk IDs with max limit (100)
+	ids, err := graphql.ParseBulkUUIDs(variables, "ids")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	deleted, err := service.BulkDelete(ctx, tenantID, ids)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "bulk delete clusters")
 		return
 	}
 
@@ -692,7 +710,7 @@ func handleBulkDeleteClusters(ctx context.Context, w http.ResponseWriter, variab
 		},
 	})
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"bulkDeleteClusters": deleted,
-	}))
+	})
 }

@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"csd-pilote/backend/modules/platform/middleware"
+
 	"github.com/google/uuid"
 )
 
@@ -50,12 +52,78 @@ type LimitConfig struct {
 func DefaultConfig() *Config {
 	return &Config{
 		DefaultLimit: LimitConfig{
-			MaxRequests: 100,
+			MaxRequests: 60,
 			Window:      time.Minute,
 			Burst:       10,
 		},
 		Limits: map[string]LimitConfig{
-			// Deploy operations - more restrictive
+			// ===== QUERIES =====
+			// List queries - moderate limits to prevent data dumps
+			"clusters": {
+				MaxRequests: 60,
+				Window:      time.Minute,
+				Burst:       10,
+			},
+			"hypervisors": {
+				MaxRequests: 60,
+				Window:      time.Minute,
+				Burst:       10,
+			},
+			"containerEngines": {
+				MaxRequests: 60,
+				Window:      time.Minute,
+				Burst:       10,
+			},
+			"pods": {
+				MaxRequests: 120,
+				Window:      time.Minute,
+				Burst:       20,
+			},
+			"deployments": {
+				MaxRequests: 120,
+				Window:      time.Minute,
+				Burst:       20,
+			},
+			"services": {
+				MaxRequests: 120,
+				Window:      time.Minute,
+				Burst:       20,
+			},
+			"namespaces": {
+				MaxRequests: 60,
+				Window:      time.Minute,
+				Burst:       10,
+			},
+			// Security queries
+			"securityRules": {
+				MaxRequests: 60,
+				Window:      time.Minute,
+				Burst:       10,
+			},
+			"securityProfiles": {
+				MaxRequests: 60,
+				Window:      time.Minute,
+				Burst:       10,
+			},
+			"securityDeployments": {
+				MaxRequests: 30,
+				Window:      time.Minute,
+				Burst:       5,
+			},
+			// Log queries - more restrictive (can be large)
+			"podLogs": {
+				MaxRequests: 30,
+				Window:      time.Minute,
+				Burst:       5,
+			},
+			"containerLogs": {
+				MaxRequests: 30,
+				Window:      time.Minute,
+				Burst:       5,
+			},
+
+			// ===== MUTATIONS =====
+			// Deploy operations - very restrictive
 			"deployCluster": {
 				MaxRequests: 5,
 				Window:      time.Minute,
@@ -65,6 +133,16 @@ func DefaultConfig() *Config {
 				MaxRequests: 5,
 				Window:      time.Minute,
 				Burst:       1,
+			},
+			"deploySecurityProfile": {
+				MaxRequests: 10,
+				Window:      time.Minute,
+				Burst:       2,
+			},
+			"flushSecurityRules": {
+				MaxRequests: 3,
+				Window:      time.Minute,
+				Burst:       0,
 			},
 
 			// Test connection operations
@@ -84,7 +162,7 @@ func DefaultConfig() *Config {
 				Burst:       2,
 			},
 
-			// Bulk delete operations
+			// Bulk delete operations - very restrictive
 			"bulkDeleteClusters": {
 				MaxRequests: 3,
 				Window:      time.Minute,
@@ -96,6 +174,11 @@ func DefaultConfig() *Config {
 				Burst:       0,
 			},
 			"bulkDeleteContainerEngines": {
+				MaxRequests: 3,
+				Window:      time.Minute,
+				Burst:       0,
+			},
+			"bulkDeleteSecurityRules": {
 				MaxRequests: 3,
 				Window:      time.Minute,
 				Burst:       0,
@@ -113,6 +196,33 @@ func DefaultConfig() *Config {
 				Burst:       5,
 			},
 			"createContainerEngine": {
+				MaxRequests: 20,
+				Window:      time.Minute,
+				Burst:       5,
+			},
+			"createSecurityRule": {
+				MaxRequests: 30,
+				Window:      time.Minute,
+				Burst:       10,
+			},
+			"createSecurityProfile": {
+				MaxRequests: 20,
+				Window:      time.Minute,
+				Burst:       5,
+			},
+
+			// Container/Pod actions - moderate
+			"containerAction": {
+				MaxRequests: 30,
+				Window:      time.Minute,
+				Burst:       10,
+			},
+			"pullImage": {
+				MaxRequests: 10,
+				Window:      time.Minute,
+				Burst:       2,
+			},
+			"scaleDeployment": {
 				MaxRequests: 20,
 				Window:      time.Minute,
 				Burst:       5,
@@ -240,14 +350,17 @@ func (e *RateLimitError) Error() string {
 
 // CheckRateLimit checks rate limit and returns an error if exceeded
 func CheckRateLimit(r *http.Request, operation string) error {
-	tenantID, ok := r.Context().Value("tenantId").(uuid.UUID)
+	// Use typed context keys from middleware (not raw strings)
+	tenantID, ok := middleware.GetTenantIDFromContext(r.Context())
 	if !ok {
-		// No tenant, no rate limiting
+		// No tenant, no rate limiting (unauthenticated request)
 		return nil
 	}
-	userID, ok := r.Context().Value("userId").(uuid.UUID)
-	if !ok {
-		userID = uuid.Nil
+
+	// Get user ID for more granular limiting if needed
+	var userID uuid.UUID
+	if user, ok := middleware.GetUserFromContext(r.Context()); ok {
+		userID = user.UserID
 	}
 
 	limiter := GetRateLimiter()

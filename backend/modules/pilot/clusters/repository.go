@@ -61,8 +61,10 @@ func (r *Repository) List(tenantID uuid.UUID, filter *ClusterFilter, limit, offs
 		return nil, 0, err
 	}
 
-	// Get results with nodes preloaded
-	if err := query.Preload("Nodes").Order("created_at DESC").Limit(limit).Offset(offset).Find(&clusters).Error; err != nil {
+	// Get results with nodes preloaded (limit nodes per cluster for safety)
+	if err := query.Preload("Nodes", func(db *gorm.DB) *gorm.DB {
+		return db.Limit(1000).Order("role, created_at")
+	}).Order("created_at DESC").Limit(limit).Offset(offset).Find(&clusters).Error; err != nil {
 		return nil, 0, err
 	}
 
@@ -74,8 +76,13 @@ func (r *Repository) Update(cluster *Cluster) error {
 	return r.db.Save(cluster).Error
 }
 
-// Delete deletes a cluster
+// Delete deletes a cluster and its associated nodes (cascade)
 func (r *Repository) Delete(tenantID, id uuid.UUID) error {
+	// First delete all associated nodes (cascade)
+	if err := r.db.Where("cluster_id = ?", id).Delete(&ClusterNode{}).Error; err != nil {
+		return err
+	}
+	// Then delete the cluster
 	return r.db.Where("tenant_id = ? AND id = ?", tenantID, id).Delete(&Cluster{}).Error
 }
 
@@ -98,10 +105,10 @@ func (r *Repository) CreateNodes(nodes []ClusterNode) error {
 	return r.db.Create(&nodes).Error
 }
 
-// GetNodes retrieves all nodes for a cluster
+// GetNodes retrieves nodes for a cluster (limited for safety)
 func (r *Repository) GetNodes(clusterID uuid.UUID) ([]ClusterNode, error) {
 	var nodes []ClusterNode
-	err := r.db.Where("cluster_id = ?", clusterID).Order("role, created_at").Find(&nodes).Error
+	err := r.db.Where("cluster_id = ?", clusterID).Order("role, created_at").Limit(1000).Find(&nodes).Error
 	return nodes, err
 }
 
@@ -129,10 +136,12 @@ func (r *Repository) UpdateClusterArtifact(clusterID uuid.UUID, artifactKey stri
 		}).Error
 }
 
-// GetByIDWithNodes retrieves a cluster with its nodes
+// GetByIDWithNodes retrieves a cluster with its nodes (limited for safety)
 func (r *Repository) GetByIDWithNodes(tenantID, id uuid.UUID) (*Cluster, error) {
 	var cluster Cluster
-	err := r.db.Preload("Nodes").Where("tenant_id = ? AND id = ?", tenantID, id).First(&cluster).Error
+	err := r.db.Preload("Nodes", func(db *gorm.DB) *gorm.DB {
+		return db.Limit(1000).Order("role, created_at")
+	}).Where("tenant_id = ? AND id = ?", tenantID, id).First(&cluster).Error
 	if err != nil {
 		return nil, err
 	}
@@ -153,8 +162,13 @@ func (r *Repository) CountByStatus(tenantID uuid.UUID, status ClusterStatus) (in
 	return count, err
 }
 
-// BulkDelete deletes multiple clusters by IDs
+// BulkDelete deletes multiple clusters and their associated nodes (cascade)
 func (r *Repository) BulkDelete(tenantID uuid.UUID, ids []uuid.UUID) (int64, error) {
+	// First delete all associated nodes (cascade)
+	if err := r.db.Where("cluster_id IN ?", ids).Delete(&ClusterNode{}).Error; err != nil {
+		return 0, err
+	}
+	// Then delete the clusters
 	result := r.db.Where("tenant_id = ? AND id IN ?", tenantID, ids).Delete(&Cluster{})
 	return result.RowsAffected, result.Error
 }

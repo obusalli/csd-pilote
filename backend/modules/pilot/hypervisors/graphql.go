@@ -2,14 +2,12 @@ package hypervisors
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
-
-	"github.com/google/uuid"
 
 	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/middleware"
+	"csd-pilote/backend/modules/platform/validation"
 )
 
 func init() {
@@ -76,83 +74,86 @@ func init() {
 func handleListHypervisors(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	limit := 20
-	offset := 0
-	if l, ok := variables["limit"].(float64); ok {
-		limit = int(l)
-	}
-	if o, ok := variables["offset"].(float64); ok {
-		offset = int(o)
-	}
+	limit, offset := graphql.ParsePagination(variables)
 
 	var filter *HypervisorFilter
 	if f, ok := variables["filter"].(map[string]interface{}); ok {
 		filter = &HypervisorFilter{}
 		if search, ok := f["search"].(string); ok {
+			if len(search) > validation.MaxSearchLength {
+				graphql.WriteValidationError(w, "search term too long")
+				return
+			}
 			filter.Search = &search
 		}
 		if status, ok := f["status"].(string); ok {
+			if err := graphql.ValidateEnum(status, graphql.HypervisorStatusValues, "status"); err != nil {
+				graphql.WriteValidationError(w, err.Error())
+				return
+			}
 			s := HypervisorStatus(status)
 			filter.Status = &s
+		}
+		if mode, ok := f["mode"].(string); ok {
+			if err := graphql.ValidateEnum(mode, graphql.HypervisorModeValues, "mode"); err != nil {
+				graphql.WriteValidationError(w, err.Error())
+				return
+			}
+			m := HypervisorMode(mode)
+			filter.Mode = &m
 		}
 	}
 
 	hypervisors, count, err := service.List(ctx, tenantID, filter, limit, offset)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list hypervisors")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"hypervisors":      hypervisors,
 		"hypervisorsCount": count,
-	}))
+	})
 }
 
 func handleGetHypervisor(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	hypervisor, err := service.Get(ctx, tenantID, id)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "get hypervisor")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"hypervisor": hypervisor,
-	}))
+	})
 }
 
 func handleCreateHypervisor(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	user, ok := middleware.GetUserFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
@@ -160,43 +161,27 @@ func handleCreateHypervisor(ctx context.Context, w http.ResponseWriter, variable
 
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
+		graphql.WriteValidationError(w, "input is required")
 		return
 	}
 
-	input := &HypervisorInput{}
-	if name, ok := inputRaw["name"].(string); ok {
-		input.Name = name
-	}
-	if description, ok := inputRaw["description"].(string); ok {
-		input.Description = description
-	}
-	if agentId, ok := inputRaw["agentId"].(string); ok {
-		input.AgentID = agentId
-	}
-	if uri, ok := inputRaw["uri"].(string); ok {
-		input.URI = uri
-	}
-	if artifactKey, ok := inputRaw["artifactKey"].(string); ok {
-		input.ArtifactKey = artifactKey
+	input, err := parseHypervisorInput(inputRaw)
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
 	}
 
-	if input.Name == "" {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
-		return
-	}
-	if input.AgentID == "" {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("agentId is required"))
-		return
-	}
-	if input.URI == "" {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("uri is required"))
+	// Validate required fields
+	v := validation.NewValidator()
+	v.Required("name", input.Name).Required("agentId", input.AgentID).Required("uri", input.URI)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	hypervisor, err := service.Create(ctx, tenantID, user.UserID, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "create hypervisor")
 		return
 	}
 
@@ -212,58 +197,41 @@ func handleCreateHypervisor(ctx context.Context, w http.ResponseWriter, variable
 		},
 	})
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"createHypervisor": hypervisor,
-	}))
+	})
 }
 
 func handleUpdateHypervisor(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
+		graphql.WriteValidationError(w, "input is required")
 		return
 	}
 
-	input := &HypervisorInput{}
-	if name, ok := inputRaw["name"].(string); ok {
-		input.Name = name
-	}
-	if description, ok := inputRaw["description"].(string); ok {
-		input.Description = description
-	}
-	if agentId, ok := inputRaw["agentId"].(string); ok {
-		input.AgentID = agentId
-	}
-	if uri, ok := inputRaw["uri"].(string); ok {
-		input.URI = uri
-	}
-	if artifactKey, ok := inputRaw["artifactKey"].(string); ok {
-		input.ArtifactKey = artifactKey
+	input, err := parseHypervisorInput(inputRaw)
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
 	}
 
 	hypervisor, err := service.Update(ctx, tenantID, id, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "update hypervisor")
 		return
 	}
 
@@ -277,29 +245,23 @@ func handleUpdateHypervisor(ctx context.Context, w http.ResponseWriter, variable
 		},
 	})
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"updateHypervisor": hypervisor,
-	}))
+	})
 }
 
 func handleDeleteHypervisor(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
@@ -311,7 +273,7 @@ func handleDeleteHypervisor(ctx context.Context, w http.ResponseWriter, variable
 	}
 
 	if err := service.Delete(ctx, tenantID, id); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "delete hypervisor")
 		return
 	}
 
@@ -325,43 +287,37 @@ func handleDeleteHypervisor(ctx context.Context, w http.ResponseWriter, variable
 		},
 	})
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"deleteHypervisor": true,
-	}))
+	})
 }
 
 func handleTestHypervisorConnection(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	agentIDStr, _ := variables["agentId"].(string)
-	agentID, _ := uuid.Parse(agentIDStr)
+	// agentId is optional - parse but don't fail if invalid
+	agentID, _ := graphql.ParseUUID(variables, "agentId")
 
 	if err := service.TestConnection(ctx, token, tenantID, id, agentID); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "test hypervisor connection")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"testHypervisorConnection": true,
-	}))
+	})
 }
 
 func handleListLibvirtAgents(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
@@ -370,20 +326,26 @@ func handleListLibvirtAgents(ctx context.Context, w http.ResponseWriter, variabl
 	client := csdcore.GetClient()
 	agents, err := client.ListAgentsByCapability(ctx, token, "libvirt")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list libvirt agents")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"libvirtAgents": agents,
-	}))
+	})
 }
 
 func handleListLibvirtDeployAgents(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	token, _ := middleware.GetTokenFromContext(ctx)
 
 	// Filter by driver if provided
-	driver, _ := variables["driver"].(string)
+	driver := graphql.ParseString(variables, "driver")
+	if driver != "" {
+		if err := graphql.ValidateEnum(driver, graphql.LibvirtDriverValues, "driver"); err != nil {
+			graphql.WriteValidationError(w, err.Error())
+			return
+		}
+	}
 
 	client := csdcore.GetClient()
 	var agents []csdcore.Agent
@@ -399,7 +361,7 @@ func handleListLibvirtDeployAgents(ctx context.Context, w http.ResponseWriter, v
 	}
 
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list libvirt deploy agents")
 		return
 	}
 
@@ -424,9 +386,9 @@ func handleListLibvirtDeployAgents(ctx context.Context, w http.ResponseWriter, v
 		})
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"libvirtDeployAgents": enrichedAgents,
-	}))
+	})
 }
 
 func handleListLibvirtDrivers(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
@@ -451,21 +413,21 @@ func handleListLibvirtDrivers(ctx context.Context, w http.ResponseWriter, variab
 		},
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"libvirtDrivers": drivers,
-	}))
+	})
 }
 
 func handleDeployHypervisor(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	user, ok := middleware.GetUserFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
@@ -473,40 +435,32 @@ func handleDeployHypervisor(ctx context.Context, w http.ResponseWriter, variable
 
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
+		graphql.WriteValidationError(w, "input is required")
 		return
 	}
 
-	input := &DeployHypervisorInput{}
-	if name, ok := inputRaw["name"].(string); ok {
-		input.Name = name
-	}
-	if description, ok := inputRaw["description"].(string); ok {
-		input.Description = description
-	}
-	if agentId, ok := inputRaw["agentId"].(string); ok {
-		input.AgentID = agentId
-	}
-	if driver, ok := inputRaw["driver"].(string); ok {
-		input.Driver = LibvirtDriver(driver)
+	input, err := parseDeployHypervisorInput(inputRaw)
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
 	}
 
-	// Validation
-	if input.Name == "" {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	// Validate required fields
+	v := validation.NewValidator()
+	v.Required("name", input.Name).Required("agentId", input.AgentID)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
-	if input.AgentID == "" {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("agentId is required"))
-		return
-	}
+
+	// Default driver
 	if input.Driver == "" {
-		input.Driver = LibvirtDriverQEMU // Default to QEMU
+		input.Driver = LibvirtDriverQEMU
 	}
 
 	hypervisor, err := service.Deploy(ctx, tenantID, user.UserID, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "deploy hypervisor")
 		return
 	}
 
@@ -522,47 +476,29 @@ func handleDeployHypervisor(ctx context.Context, w http.ResponseWriter, variable
 		},
 	})
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"deployHypervisor": hypervisor,
-	}))
+	})
 }
 
 func handleBulkDeleteHypervisors(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	idsRaw, ok := variables["ids"].([]interface{})
-	if !ok || len(idsRaw) == 0 {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("ids is required"))
-		return
-	}
-
-	ids := make([]uuid.UUID, 0, len(idsRaw))
-	for _, idRaw := range idsRaw {
-		idStr, ok := idRaw.(string)
-		if !ok {
-			continue
-		}
-		id, err := uuid.Parse(idStr)
-		if err != nil {
-			continue
-		}
-		ids = append(ids, id)
-	}
-
-	if len(ids) == 0 {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("no valid ids provided"))
+	ids, err := graphql.ParseBulkUUIDs(variables, "ids")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	deleted, err := service.BulkDelete(ctx, tenantID, ids)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "bulk delete hypervisors")
 		return
 	}
 
@@ -577,7 +513,71 @@ func handleBulkDeleteHypervisors(ctx context.Context, w http.ResponseWriter, var
 		},
 	})
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"bulkDeleteHypervisors": deleted,
-	}))
+	})
+}
+
+// ========================================
+// Helper Functions
+// ========================================
+
+func parseHypervisorInput(inputRaw map[string]interface{}) (*HypervisorInput, error) {
+	input := &HypervisorInput{}
+	v := validation.NewValidator()
+
+	if name, ok := inputRaw["name"].(string); ok {
+		v.MaxLength("name", name, validation.MaxNameLength).SafeString("name", name)
+		input.Name = name
+	}
+	if description, ok := inputRaw["description"].(string); ok {
+		v.MaxLength("description", description, validation.MaxDescriptionLength)
+		input.Description = description
+	}
+	if agentId, ok := inputRaw["agentId"].(string); ok {
+		v.UUID("agentId", agentId)
+		input.AgentID = agentId
+	}
+	if uri, ok := inputRaw["uri"].(string); ok {
+		v.MaxLength("uri", uri, 1024).SafeString("uri", uri)
+		input.URI = uri
+	}
+	if artifactKey, ok := inputRaw["artifactKey"].(string); ok {
+		v.MaxLength("artifactKey", artifactKey, 255).SafeString("artifactKey", artifactKey)
+		input.ArtifactKey = artifactKey
+	}
+
+	if v.HasErrors() {
+		return nil, v.Errors()
+	}
+	return input, nil
+}
+
+func parseDeployHypervisorInput(inputRaw map[string]interface{}) (*DeployHypervisorInput, error) {
+	input := &DeployHypervisorInput{}
+	v := validation.NewValidator()
+
+	if name, ok := inputRaw["name"].(string); ok {
+		v.MaxLength("name", name, validation.MaxNameLength).SafeString("name", name)
+		input.Name = name
+	}
+	if description, ok := inputRaw["description"].(string); ok {
+		v.MaxLength("description", description, validation.MaxDescriptionLength)
+		input.Description = description
+	}
+	if agentId, ok := inputRaw["agentId"].(string); ok {
+		v.UUID("agentId", agentId)
+		input.AgentID = agentId
+	}
+	if driver, ok := inputRaw["driver"].(string); ok {
+		if err := graphql.ValidateEnum(driver, graphql.LibvirtDriverValues, "driver"); err != nil {
+			return nil, err
+		}
+		input.Driver = LibvirtDriver(driver)
+	}
+
+	if v.HasErrors() {
+		return nil, v.Errors()
+	}
+	return input, nil
 }

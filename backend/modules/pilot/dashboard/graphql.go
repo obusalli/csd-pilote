@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 
 	"csd-pilote/backend/modules/pilot/clusters"
@@ -37,7 +36,7 @@ type DashboardStats struct {
 func handleDashboardStats(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
@@ -75,7 +74,7 @@ func handleDashboardStats(ctx context.Context, w http.ResponseWriter, variables 
 		EnginesError:          enginesError,
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"dashboardStats": stats,
-	}))
+	})
 }

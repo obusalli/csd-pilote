@@ -6,9 +6,10 @@ import (
 	"regexp"
 	"strings"
 
-	"csd-pilote/backend/modules/platform/csd-core"
+	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/middleware"
 	"csd-pilote/backend/modules/platform/ratelimit"
+	"csd-pilote/backend/modules/platform/validation"
 )
 
 // Handler handles GraphQL requests
@@ -23,6 +24,16 @@ func NewHandler(csdCoreClient *csdcore.Client) *Handler {
 	}
 }
 
+// MaxRequestBodySize is the maximum allowed request body size (1MB)
+const MaxRequestBodySize = 1 << 20 // 1 MB
+
+// Pre-compiled regex patterns for GraphQL parsing (performance optimization)
+var (
+	graphqlOperationPattern = regexp.MustCompile(`^(query|mutation|subscription)\s+(\w+)`)
+	graphqlTypePattern      = regexp.MustCompile(`^(query|mutation)\s*`)
+	graphqlFieldPattern     = regexp.MustCompile(`\{\s*(\w+)`)
+)
+
 // ServeHTTP handles GraphQL HTTP requests
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -32,6 +43,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(NewErrorResponse("Method not allowed"))
 		return
 	}
+
+	// Limit request body size to prevent DoS
+	r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBodySize)
 
 	var req GraphQLRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -70,17 +84,15 @@ func (h *Handler) handleLocal(w http.ResponseWriter, r *http.Request, opType, op
 		return false
 	}
 
-	// Check rate limit for mutations
-	if opType == "mutation" {
-		if err := ratelimit.CheckRateLimit(r, opName); err != nil {
-			if rlErr, ok := err.(*ratelimit.RateLimitError); ok {
-				w.WriteHeader(http.StatusTooManyRequests)
-				json.NewEncoder(w).Encode(NewErrorResponseWithCode(
-					"RATE_LIMIT_EXCEEDED",
-					"Too many requests for "+rlErr.Operation+". Please try again later.",
-				))
-				return true
-			}
+	// Check rate limit for ALL operations (queries and mutations)
+	if err := ratelimit.CheckRateLimit(r, opName); err != nil {
+		if rlErr, ok := err.(*ratelimit.RateLimitError); ok {
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(NewErrorResponseWithCode(
+				"RATE_LIMIT_EXCEEDED",
+				validation.NewRateLimitError(rlErr.Operation).Message,
+			))
+			return true
 		}
 	}
 
@@ -88,7 +100,11 @@ func (h *Handler) handleLocal(w http.ResponseWriter, r *http.Request, opType, op
 	if op.Permission != "" {
 		token, hasToken := middleware.GetTokenFromContext(r.Context())
 		if !hasToken {
-			json.NewEncoder(w).Encode(NewErrorResponse("Unauthorized"))
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(NewErrorResponseWithCode(
+				string(validation.ErrCodeUnauthorized),
+				validation.NewUnauthorizedError().Message,
+			))
 			return true
 		}
 
@@ -100,7 +116,11 @@ func (h *Handler) handleLocal(w http.ResponseWriter, r *http.Request, opType, op
 				// Check for specific permission
 				hasPermission, err := h.csdCoreClient.CheckPermission(r.Context(), token, op.Permission)
 				if err != nil || !hasPermission {
-					json.NewEncoder(w).Encode(NewErrorResponse("Permission denied: " + op.Permission))
+					w.WriteHeader(http.StatusForbidden)
+					json.NewEncoder(w).Encode(NewErrorResponseWithCode(
+						string(validation.ErrCodeForbidden),
+						validation.NewForbiddenError(op.Permission).Message,
+					))
 					return true
 				}
 			}
@@ -129,7 +149,8 @@ func (h *Handler) forwardToCSDCore(w http.ResponseWriter, r *http.Request, req G
 
 	resp, err := h.csdCoreClient.ExecuteWithName(r.Context(), token, operationName, req.Query, req.Variables)
 	if err != nil {
-		json.NewEncoder(w).Encode(NewErrorResponse(err.Error()))
+		// Sanitize error to prevent information disclosure
+		json.NewEncoder(w).Encode(NewErrorResponse(validation.SafeErrorMessage(err, "csd-core proxy")))
 		return
 	}
 
@@ -145,8 +166,7 @@ func (h *Handler) forwardToCSDCore(w http.ResponseWriter, r *http.Request, req G
 // extractOperationNameFromQuery extracts the operation name from a GraphQL query
 func extractOperationNameFromQuery(query string) string {
 	query = strings.TrimSpace(query)
-	pattern := regexp.MustCompile(`^(query|mutation|subscription)\s+(\w+)`)
-	matches := pattern.FindStringSubmatch(query)
+	matches := graphqlOperationPattern.FindStringSubmatch(query)
 	if len(matches) > 2 {
 		return matches[2]
 	}
@@ -157,8 +177,7 @@ func extractOperationNameFromQuery(query string) string {
 func parseOperation(query string, operationName string) (opType string, opName string) {
 	query = strings.TrimSpace(query)
 
-	typePattern := regexp.MustCompile(`^(query|mutation)\s*`)
-	matches := typePattern.FindStringSubmatch(query)
+	matches := graphqlTypePattern.FindStringSubmatch(query)
 	if len(matches) > 1 {
 		opType = matches[1]
 	} else {
@@ -166,8 +185,7 @@ func parseOperation(query string, operationName string) (opType string, opName s
 	}
 
 	// Try to find the first field name
-	fieldPattern := regexp.MustCompile(`\{\s*(\w+)`)
-	fieldMatches := fieldPattern.FindStringSubmatch(query)
+	fieldMatches := graphqlFieldPattern.FindStringSubmatch(query)
 	if len(fieldMatches) > 1 {
 		opName = fieldMatches[1]
 	}

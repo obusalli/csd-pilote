@@ -3,6 +3,7 @@ package hypervisors
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -200,7 +201,9 @@ func (s *Service) Deploy(ctx context.Context, tenantID, userID uuid.UUID, input 
 
 // runDeployment executes the libvirt deployment in background
 func (s *Service) runDeployment(hypervisorID, tenantID uuid.UUID, input *DeployHypervisorInput) {
-	ctx := context.Background()
+	// Use timeout to prevent goroutine leaks (15 minutes max for hypervisor deployment)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
 	driver := string(input.Driver)
 
 	// Background tasks use internal auth

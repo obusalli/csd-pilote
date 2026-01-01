@@ -2,13 +2,11 @@ package networks
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
-
-	"github.com/google/uuid"
 
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/middleware"
+	"csd-pilote/backend/modules/platform/validation"
 )
 
 func init() {
@@ -50,21 +48,15 @@ func init() {
 func handleListNetworks(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
@@ -72,6 +64,10 @@ func handleListNetworks(ctx context.Context, w http.ResponseWriter, variables ma
 	if f, ok := variables["filter"].(map[string]interface{}); ok {
 		filter = &NetworkFilter{}
 		if search, ok := f["search"].(string); ok {
+			if len(search) > validation.MaxSearchLength {
+				graphql.WriteValidationError(w, "search term too long")
+				return
+			}
 			filter.Search = &search
 		}
 		if active, ok := f["active"].(bool); ok {
@@ -81,207 +77,213 @@ func handleListNetworks(ctx context.Context, w http.ResponseWriter, variables ma
 
 	networks, err := service.List(ctx, token, tenantID, hypervisorID, filter)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list libvirt networks")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"libvirtNetworks":      networks,
 		"libvirtNetworksCount": len(networks),
-	}))
+	})
 }
 
 func handleGetNetwork(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	name, ok := variables["name"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	name, err := graphql.ParseStringRequired(variables, "name")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	// Validate network name
+	v := validation.NewValidator()
+	v.MaxLength("name", name, validation.MaxNameLength).SafeString("name", name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	network, err := service.Get(ctx, token, tenantID, hypervisorID, name)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "get libvirt network")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"libvirtNetwork": network,
-	}))
+	})
 }
 
 func handleStartNetwork(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	name, ok := variables["name"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	name, err := graphql.ParseStringRequired(variables, "name")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	v := validation.NewValidator()
+	v.MaxLength("name", name, validation.MaxNameLength).SafeString("name", name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	network, err := service.Start(ctx, token, tenantID, hypervisorID, name)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "start libvirt network")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"startLibvirtNetwork": network,
-	}))
+	})
 }
 
 func handleStopNetwork(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	name, ok := variables["name"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	name, err := graphql.ParseStringRequired(variables, "name")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	v := validation.NewValidator()
+	v.MaxLength("name", name, validation.MaxNameLength).SafeString("name", name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	network, err := service.Stop(ctx, token, tenantID, hypervisorID, name)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "stop libvirt network")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"stopLibvirtNetwork": network,
-	}))
+	})
 }
 
 func handleSetNetworkAutostart(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	name, ok := variables["name"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	name, err := graphql.ParseStringRequired(variables, "name")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	v := validation.NewValidator()
+	v.MaxLength("name", name, validation.MaxNameLength).SafeString("name", name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	autostart, ok := variables["autostart"].(bool)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("autostart is required"))
+		graphql.WriteValidationError(w, "autostart is required")
 		return
 	}
 
 	network, err := service.SetAutostart(ctx, token, tenantID, hypervisorID, name, autostart)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "set libvirt network autostart")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"setLibvirtNetworkAutostart": network,
-	}))
+	})
 }
 
 func handleDeleteNetwork(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	name, ok := variables["name"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	name, err := graphql.ParseStringRequired(variables, "name")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	v := validation.NewValidator()
+	v.MaxLength("name", name, validation.MaxNameLength).SafeString("name", name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	if err := service.Delete(ctx, token, tenantID, hypervisorID, name); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "delete libvirt network")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"deleteLibvirtNetwork": true,
-	}))
+	})
 }

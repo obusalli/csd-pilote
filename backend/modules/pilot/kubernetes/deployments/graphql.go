@@ -2,13 +2,11 @@ package deployments
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
-
-	"github.com/google/uuid"
 
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/middleware"
+	"csd-pilote/backend/modules/platform/validation"
 )
 
 func init() {
@@ -50,280 +48,317 @@ func init() {
 func handleListDeployments(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	clusterIDStr, ok := variables["clusterId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("clusterId is required"))
-		return
-	}
-
-	clusterID, err := uuid.Parse(clusterIDStr)
+	clusterID, err := graphql.ParseUUID(variables, "clusterId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid clusterId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
+	// Namespace is optional for listing deployments
 	namespace, _ := variables["namespace"].(string)
+	if namespace != "" {
+		v := validation.NewValidator()
+		v.KubernetesName("namespace", namespace)
+		if v.HasErrors() {
+			graphql.WriteValidationError(w, v.FirstError())
+			return
+		}
+	}
 
 	var filter *DeploymentFilter
 	if f, ok := variables["filter"].(map[string]interface{}); ok {
 		filter = &DeploymentFilter{}
 		if search, ok := f["search"].(string); ok {
+			if len(search) > validation.MaxSearchLength {
+				graphql.WriteValidationError(w, "search term too long")
+				return
+			}
 			filter.Search = &search
 		}
 	}
 
 	deployments, err := service.List(ctx, token, tenantID, clusterID, namespace, filter)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list deployments")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"deployments":      deployments,
 		"deploymentsCount": len(deployments),
-	}))
+	})
 }
 
 func handleGetDeployment(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	clusterIDStr, ok := variables["clusterId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("clusterId is required"))
-		return
-	}
-
-	clusterID, err := uuid.Parse(clusterIDStr)
+	clusterID, err := graphql.ParseUUID(variables, "clusterId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid clusterId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	namespace, ok := variables["namespace"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("namespace is required"))
+	namespace, err := graphql.ParseStringRequired(variables, "namespace")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	name, ok := variables["name"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	name, err := graphql.ParseStringRequired(variables, "name")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	// Validate Kubernetes names (RFC 1123)
+	v := validation.NewValidator()
+	v.KubernetesName("namespace", namespace)
+	v.KubernetesName("name", name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	deployment, err := service.Get(ctx, token, tenantID, clusterID, namespace, name)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "get deployment")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"deployment": deployment,
-	}))
+	})
 }
 
 func handleCreateDeployment(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	clusterIDStr, ok := variables["clusterId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("clusterId is required"))
-		return
-	}
-
-	clusterID, err := uuid.Parse(clusterIDStr)
+	clusterID, err := graphql.ParseUUID(variables, "clusterId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid clusterId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
+		graphql.WriteValidationError(w, "input is required")
 		return
 	}
 
+	v := validation.NewValidator()
 	input := &CreateDeploymentInput{}
+
 	if name, ok := inputRaw["name"].(string); ok {
+		v.KubernetesName("name", name)
 		input.Name = name
 	}
 	if namespace, ok := inputRaw["namespace"].(string); ok {
+		v.KubernetesName("namespace", namespace)
 		input.Namespace = namespace
 	}
 	if image, ok := inputRaw["image"].(string); ok {
+		// Validate image reference (max length 1024, safe string)
+		v.MaxLength("image", image, 1024).SafeString("image", image)
 		input.Image = image
 	}
 	if replicas, ok := inputRaw["replicas"].(float64); ok {
-		input.Replicas = int32(replicas)
+		replicasInt := int32(replicas)
+		// Limit replicas to reasonable value (0-1000)
+		if replicasInt < 0 || replicasInt > 1000 {
+			graphql.WriteValidationError(w, "replicas must be between 0 and 1000")
+			return
+		}
+		input.Replicas = replicasInt
+	}
+
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
+		return
 	}
 
 	if input.Name == "" || input.Namespace == "" || input.Image == "" {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name, namespace and image are required"))
+		graphql.WriteValidationError(w, "name, namespace and image are required")
 		return
 	}
 
 	deployment, err := service.Create(ctx, token, tenantID, clusterID, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "create deployment")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"createDeployment": deployment,
-	}))
+	})
 }
 
 func handleScaleDeployment(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	clusterIDStr, ok := variables["clusterId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("clusterId is required"))
-		return
-	}
-
-	clusterID, err := uuid.Parse(clusterIDStr)
+	clusterID, err := graphql.ParseUUID(variables, "clusterId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid clusterId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	namespace, ok := variables["namespace"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("namespace is required"))
+	namespace, err := graphql.ParseStringRequired(variables, "namespace")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	name, ok := variables["name"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	name, err := graphql.ParseStringRequired(variables, "name")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	// Validate Kubernetes names (RFC 1123)
+	v := validation.NewValidator()
+	v.KubernetesName("namespace", namespace)
+	v.KubernetesName("name", name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	replicasFloat, ok := variables["replicas"].(float64)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("replicas is required"))
+		graphql.WriteValidationError(w, "replicas is required")
 		return
 	}
 
-	deployment, err := service.Scale(ctx, token, tenantID, clusterID, namespace, name, int32(replicasFloat))
+	replicas := int32(replicasFloat)
+	// Limit replicas to reasonable value (0-1000)
+	if replicas < 0 || replicas > 1000 {
+		graphql.WriteValidationError(w, "replicas must be between 0 and 1000")
+		return
+	}
+
+	deployment, err := service.Scale(ctx, token, tenantID, clusterID, namespace, name, replicas)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "scale deployment")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"scaleDeployment": deployment,
-	}))
+	})
 }
 
 func handleRestartDeployment(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	clusterIDStr, ok := variables["clusterId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("clusterId is required"))
-		return
-	}
-
-	clusterID, err := uuid.Parse(clusterIDStr)
+	clusterID, err := graphql.ParseUUID(variables, "clusterId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid clusterId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	namespace, ok := variables["namespace"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("namespace is required"))
+	namespace, err := graphql.ParseStringRequired(variables, "namespace")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	name, ok := variables["name"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	name, err := graphql.ParseStringRequired(variables, "name")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	// Validate Kubernetes names (RFC 1123)
+	v := validation.NewValidator()
+	v.KubernetesName("namespace", namespace)
+	v.KubernetesName("name", name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	deployment, err := service.Restart(ctx, token, tenantID, clusterID, namespace, name)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "restart deployment")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"restartDeployment": deployment,
-	}))
+	})
 }
 
 func handleDeleteDeployment(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	clusterIDStr, ok := variables["clusterId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("clusterId is required"))
-		return
-	}
-
-	clusterID, err := uuid.Parse(clusterIDStr)
+	clusterID, err := graphql.ParseUUID(variables, "clusterId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid clusterId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	namespace, ok := variables["namespace"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("namespace is required"))
+	namespace, err := graphql.ParseStringRequired(variables, "namespace")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	name, ok := variables["name"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	name, err := graphql.ParseStringRequired(variables, "name")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	// Validate Kubernetes names (RFC 1123)
+	v := validation.NewValidator()
+	v.KubernetesName("namespace", namespace)
+	v.KubernetesName("name", name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	if err := service.Delete(ctx, token, tenantID, clusterID, namespace, name); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "delete deployment")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"deleteDeployment": true,
-	}))
+	})
 }

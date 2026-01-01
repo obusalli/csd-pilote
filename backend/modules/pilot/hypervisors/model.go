@@ -37,7 +37,7 @@ const (
 // Hypervisor represents a Libvirt hypervisor configuration
 type Hypervisor struct {
 	ID            uuid.UUID        `json:"id" gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	TenantID      uuid.UUID        `json:"tenantId" gorm:"type:uuid;not null;index"`
+	TenantID      uuid.UUID        `json:"tenantId" gorm:"type:uuid;not null;index:idx_hv_tenant;index:idx_hv_tenant_status"`
 	Name          string           `json:"name" gorm:"not null"`
 	Description   string           `json:"description"`
 	Mode          HypervisorMode   `json:"mode" gorm:"default:'CONNECT'"`       // CONNECT or DEPLOY
@@ -45,7 +45,7 @@ type Hypervisor struct {
 	AgentID       uuid.UUID        `json:"agentId" gorm:"type:uuid;not null"`   // csd-core agent
 	URI           string           `json:"uri"`                                  // e.g., qemu+ssh://user@host/system (for CONNECT)
 	ArtifactKey   string           `json:"artifactKey"`                          // Reference to SSH key artifact (optional)
-	Status        HypervisorStatus `json:"status" gorm:"default:'PENDING'"`
+	Status        HypervisorStatus `json:"status" gorm:"default:'PENDING';index:idx_hv_tenant_status"`
 	StatusMessage string           `json:"statusMessage"`
 	// Cached info from hypervisor
 	Hostname       string     `json:"hostname"`

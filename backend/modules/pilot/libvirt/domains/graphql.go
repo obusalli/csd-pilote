@@ -2,14 +2,15 @@ package domains
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
-
-	"github.com/google/uuid"
 
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/middleware"
+	"csd-pilote/backend/modules/platform/validation"
 )
+
+// Domain state enum values for validation
+var domainStateValues = []string{"running", "paused", "shutoff", "crashed", "suspended", ""}
 
 func init() {
 	service := NewService()
@@ -60,21 +61,15 @@ func init() {
 func handleListDomains(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
@@ -82,9 +77,17 @@ func handleListDomains(ctx context.Context, w http.ResponseWriter, variables map
 	if f, ok := variables["filter"].(map[string]interface{}); ok {
 		filter = &DomainFilter{}
 		if search, ok := f["search"].(string); ok {
+			if len(search) > validation.MaxSearchLength {
+				graphql.WriteValidationError(w, "search term too long")
+				return
+			}
 			filter.Search = &search
 		}
 		if state, ok := f["state"].(string); ok {
+			if err := graphql.ValidateEnum(state, domainStateValues, "state"); err != nil {
+				graphql.WriteValidationError(w, err.Error())
+				return
+			}
 			s := DomainState(state)
 			filter.State = &s
 		}
@@ -92,288 +95,293 @@ func handleListDomains(ctx context.Context, w http.ResponseWriter, variables map
 
 	domains, err := service.List(ctx, token, tenantID, hypervisorID, filter)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list domains")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"domains":      domains,
 		"domainsCount": len(domains),
-	}))
+	})
 }
 
 func handleGetDomain(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	domainUUID, ok := variables["uuid"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("uuid is required"))
+	domainUUID, err := graphql.ParseStringRequired(variables, "uuid")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	// Validate UUID format
+	v := validation.NewValidator()
+	v.UUID("uuid", domainUUID)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	domain, err := service.Get(ctx, token, tenantID, hypervisorID, domainUUID)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "get domain")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"domain": domain,
-	}))
+	})
 }
 
 func handleStartDomain(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	domainUUID, ok := variables["uuid"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("uuid is required"))
+	domainUUID, err := graphql.ParseStringRequired(variables, "uuid")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	v := validation.NewValidator()
+	v.UUID("uuid", domainUUID)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	domain, err := service.Start(ctx, token, tenantID, hypervisorID, domainUUID)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "start domain")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"startDomain": domain,
-	}))
+	})
 }
 
 func handleShutdownDomain(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	domainUUID, ok := variables["uuid"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("uuid is required"))
+	domainUUID, err := graphql.ParseStringRequired(variables, "uuid")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	v := validation.NewValidator()
+	v.UUID("uuid", domainUUID)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	domain, err := service.Shutdown(ctx, token, tenantID, hypervisorID, domainUUID)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "shutdown domain")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"shutdownDomain": domain,
-	}))
+	})
 }
 
 func handleForceStopDomain(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	domainUUID, ok := variables["uuid"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("uuid is required"))
+	domainUUID, err := graphql.ParseStringRequired(variables, "uuid")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	v := validation.NewValidator()
+	v.UUID("uuid", domainUUID)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	domain, err := service.ForceStop(ctx, token, tenantID, hypervisorID, domainUUID)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "force stop domain")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"forceStopDomain": domain,
-	}))
+	})
 }
 
 func handleRebootDomain(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	domainUUID, ok := variables["uuid"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("uuid is required"))
+	domainUUID, err := graphql.ParseStringRequired(variables, "uuid")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	v := validation.NewValidator()
+	v.UUID("uuid", domainUUID)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	domain, err := service.Reboot(ctx, token, tenantID, hypervisorID, domainUUID)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "reboot domain")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"rebootDomain": domain,
-	}))
+	})
 }
 
 func handleDeleteDomain(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	domainUUID, ok := variables["uuid"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("uuid is required"))
+	domainUUID, err := graphql.ParseStringRequired(variables, "uuid")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	deleteVolumes := false
-	if dv, ok := variables["deleteVolumes"].(bool); ok {
-		deleteVolumes = dv
+	v := validation.NewValidator()
+	v.UUID("uuid", domainUUID)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
+		return
 	}
+
+	deleteVolumes := graphql.ParseBool(variables, "deleteVolumes", false)
 
 	if err := service.Delete(ctx, token, tenantID, hypervisorID, domainUUID, deleteVolumes); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "delete domain")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"deleteDomain": true,
-	}))
+	})
 }
 
 func handleSetDomainAutostart(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	domainUUID, ok := variables["uuid"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("uuid is required"))
+	domainUUID, err := graphql.ParseStringRequired(variables, "uuid")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	v := validation.NewValidator()
+	v.UUID("uuid", domainUUID)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	autostart, ok := variables["autostart"].(bool)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("autostart is required"))
+		graphql.WriteValidationError(w, "autostart is required")
 		return
 	}
 
 	domain, err := service.SetAutostart(ctx, token, tenantID, hypervisorID, domainUUID, autostart)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "set domain autostart")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"setDomainAutostart": domain,
-	}))
+	})
 }

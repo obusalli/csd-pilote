@@ -2,14 +2,12 @@ package containers
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
-
-	"github.com/google/uuid"
 
 	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/middleware"
+	"csd-pilote/backend/modules/platform/validation"
 )
 
 func init() {
@@ -91,30 +89,35 @@ func init() {
 func handleListContainerEngines(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	limit := 20
-	offset := 0
-	if l, ok := variables["limit"].(float64); ok {
-		limit = int(l)
-	}
-	if o, ok := variables["offset"].(float64); ok {
-		offset = int(o)
-	}
+	limit, offset := graphql.ParsePagination(variables)
 
 	var filter *ContainerEngineFilter
 	if f, ok := variables["filter"].(map[string]interface{}); ok {
 		filter = &ContainerEngineFilter{}
 		if search, ok := f["search"].(string); ok {
+			if len(search) > validation.MaxSearchLength {
+				graphql.WriteValidationError(w, "search term too long")
+				return
+			}
 			filter.Search = &search
 		}
 		if status, ok := f["status"].(string); ok {
+			if err := graphql.ValidateEnum(status, graphql.HypervisorStatusValues, "status"); err != nil {
+				graphql.WriteValidationError(w, err.Error())
+				return
+			}
 			s := EngineStatus(status)
 			filter.Status = &s
 		}
 		if engineType, ok := f["engineType"].(string); ok {
+			if err := graphql.ValidateEnum(engineType, graphql.ContainerEngineTypeValues, "engineType"); err != nil {
+				graphql.WriteValidationError(w, err.Error())
+				return
+			}
 			t := EngineType(engineType)
 			filter.EngineType = &t
 		}
@@ -122,56 +125,50 @@ func handleListContainerEngines(ctx context.Context, w http.ResponseWriter, vari
 
 	engines, count, err := service.List(ctx, tenantID, filter, limit, offset)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list container engines")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"containerEngines":      engines,
 		"containerEnginesCount": count,
-	}))
+	})
 }
 
 func handleGetContainerEngine(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	engine, err := service.Get(ctx, tenantID, id)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "get container engine")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"containerEngine": engine,
-	}))
+	})
 }
 
 func handleCreateContainerEngine(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	user, ok := middleware.GetUserFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
@@ -179,39 +176,27 @@ func handleCreateContainerEngine(ctx context.Context, w http.ResponseWriter, var
 
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
+		graphql.WriteValidationError(w, "input is required")
 		return
 	}
 
-	input := &ContainerEngineInput{}
-	if name, ok := inputRaw["name"].(string); ok {
-		input.Name = name
-	}
-	if description, ok := inputRaw["description"].(string); ok {
-		input.Description = description
-	}
-	if engineType, ok := inputRaw["engineType"].(string); ok {
-		input.EngineType = EngineType(engineType)
-	}
-	if host, ok := inputRaw["host"].(string); ok {
-		input.Host = host
-	}
-	if artifactKey, ok := inputRaw["artifactKey"].(string); ok {
-		input.ArtifactKey = artifactKey
-	}
-
-	if input.Name == "" {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	input, err := parseContainerEngineInput(inputRaw)
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
-	if input.Host == "" {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("host is required"))
+
+	// Validate required fields
+	v := validation.NewValidator()
+	v.Required("name", input.Name).Required("host", input.Host)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	engine, err := service.Create(ctx, tenantID, user.UserID, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "create container engine")
 		return
 	}
 
@@ -227,58 +212,41 @@ func handleCreateContainerEngine(ctx context.Context, w http.ResponseWriter, var
 		},
 	})
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"createContainerEngine": engine,
-	}))
+	})
 }
 
 func handleUpdateContainerEngine(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
+		graphql.WriteValidationError(w, "input is required")
 		return
 	}
 
-	input := &ContainerEngineInput{}
-	if name, ok := inputRaw["name"].(string); ok {
-		input.Name = name
-	}
-	if description, ok := inputRaw["description"].(string); ok {
-		input.Description = description
-	}
-	if engineType, ok := inputRaw["engineType"].(string); ok {
-		input.EngineType = EngineType(engineType)
-	}
-	if host, ok := inputRaw["host"].(string); ok {
-		input.Host = host
-	}
-	if artifactKey, ok := inputRaw["artifactKey"].(string); ok {
-		input.ArtifactKey = artifactKey
+	input, err := parseContainerEngineInput(inputRaw)
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
 	}
 
 	engine, err := service.Update(ctx, tenantID, id, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "update container engine")
 		return
 	}
 
@@ -292,29 +260,23 @@ func handleUpdateContainerEngine(ctx context.Context, w http.ResponseWriter, var
 		},
 	})
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"updateContainerEngine": engine,
-	}))
+	})
 }
 
 func handleDeleteContainerEngine(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
@@ -326,7 +288,7 @@ func handleDeleteContainerEngine(ctx context.Context, w http.ResponseWriter, var
 	}
 
 	if err := service.Delete(ctx, tenantID, id); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "delete container engine")
 		return
 	}
 
@@ -340,358 +302,317 @@ func handleDeleteContainerEngine(ctx context.Context, w http.ResponseWriter, var
 		},
 	})
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"deleteContainerEngine": true,
-	}))
+	})
 }
 
 func handleTestContainerEngineConnection(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	agentIDStr, _ := variables["agentId"].(string)
-	agentID, _ := uuid.Parse(agentIDStr)
+	// agentId is optional
+	agentID, _ := graphql.ParseUUID(variables, "agentId")
 
 	if err := service.TestConnection(ctx, token, tenantID, id, agentID); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "test container engine connection")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"testContainerEngineConnection": true,
-	}))
+	})
 }
 
 func handleListContainers(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	engineIDStr, ok := variables["engineId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("engineId is required"))
-		return
-	}
-
-	engineID, err := uuid.Parse(engineIDStr)
+	engineID, err := graphql.ParseUUID(variables, "engineId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid engineId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	agentIDStr, _ := variables["agentId"].(string)
-	agentID, _ := uuid.Parse(agentIDStr)
+	// agentId is optional
+	agentID, _ := graphql.ParseUUID(variables, "agentId")
 
-	all := false
-	if a, ok := variables["all"].(bool); ok {
-		all = a
-	}
+	all := graphql.ParseBool(variables, "all", false)
 
 	containers, err := service.ListContainers(ctx, token, tenantID, engineID, agentID, all)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list containers")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"containers": containers,
-	}))
+	})
 }
 
 func handleListImages(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	engineIDStr, ok := variables["engineId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("engineId is required"))
-		return
-	}
-
-	engineID, err := uuid.Parse(engineIDStr)
+	engineID, err := graphql.ParseUUID(variables, "engineId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid engineId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	agentIDStr, _ := variables["agentId"].(string)
-	agentID, _ := uuid.Parse(agentIDStr)
+	// agentId is optional
+	agentID, _ := graphql.ParseUUID(variables, "agentId")
 
 	images, err := service.ListImages(ctx, token, tenantID, engineID, agentID)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list images")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"containerImages": images,
-	}))
+	})
 }
 
 func handleListNetworks(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	engineIDStr, ok := variables["engineId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("engineId is required"))
-		return
-	}
-
-	engineID, err := uuid.Parse(engineIDStr)
+	engineID, err := graphql.ParseUUID(variables, "engineId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid engineId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	agentIDStr, _ := variables["agentId"].(string)
-	agentID, _ := uuid.Parse(agentIDStr)
+	// agentId is optional
+	agentID, _ := graphql.ParseUUID(variables, "agentId")
 
 	networks, err := service.ListNetworks(ctx, token, tenantID, engineID, agentID)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list networks")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"containerNetworks": networks,
-	}))
+	})
 }
 
 func handleListVolumes(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	engineIDStr, ok := variables["engineId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("engineId is required"))
-		return
-	}
-
-	engineID, err := uuid.Parse(engineIDStr)
+	engineID, err := graphql.ParseUUID(variables, "engineId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid engineId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	agentIDStr, _ := variables["agentId"].(string)
-	agentID, _ := uuid.Parse(agentIDStr)
+	// agentId is optional
+	agentID, _ := graphql.ParseUUID(variables, "agentId")
 
 	volumes, err := service.ListVolumes(ctx, token, tenantID, engineID, agentID)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list volumes")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"containerVolumes": volumes,
-	}))
+	})
 }
 
 func handleGetContainerLogs(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	engineIDStr, ok := variables["engineId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("engineId is required"))
-		return
-	}
-
-	engineID, err := uuid.Parse(engineIDStr)
+	engineID, err := graphql.ParseUUID(variables, "engineId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid engineId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	containerID, ok := variables["containerId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("containerId is required"))
+	containerID, err := graphql.ParseStringRequired(variables, "containerId")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	agentIDStr, _ := variables["agentId"].(string)
-	agentID, _ := uuid.Parse(agentIDStr)
-
-	tail := 100
-	if t, ok := variables["tail"].(float64); ok {
-		tail = int(t)
+	// Validate containerID format (safe string)
+	v := validation.NewValidator()
+	v.SafeString("containerId", containerID)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
+		return
 	}
+
+	// agentId is optional
+	agentID, _ := graphql.ParseUUID(variables, "agentId")
+
+	// Limit tail lines for security
+	tail := graphql.ParseIntWithMax(variables, "tail", 100, validation.MaxTailLines)
 
 	logs, err := service.GetContainerLogs(ctx, token, tenantID, engineID, agentID, containerID, tail)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "get container logs")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"containerLogs": logs,
-	}))
+	})
 }
 
 func handleContainerAction(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	engineIDStr, ok := variables["engineId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("engineId is required"))
-		return
-	}
-
-	engineID, err := uuid.Parse(engineIDStr)
+	engineID, err := graphql.ParseUUID(variables, "engineId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid engineId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	containerID, ok := variables["containerId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("containerId is required"))
+	containerID, err := graphql.ParseStringRequired(variables, "containerId")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	action, ok := variables["action"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("action is required"))
+	action, err := graphql.ParseStringRequired(variables, "action")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	agentIDStr, _ := variables["agentId"].(string)
-	agentID, _ := uuid.Parse(agentIDStr)
+	// Validate action enum
+	if err := graphql.ValidateEnum(action, graphql.ContainerActionValues, "action"); err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	// Validate containerID format
+	v := validation.NewValidator()
+	v.SafeString("containerId", containerID)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
+		return
+	}
+
+	// agentId is optional
+	agentID, _ := graphql.ParseUUID(variables, "agentId")
 
 	if err := service.ContainerAction(ctx, token, tenantID, engineID, agentID, containerID, action); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "container action")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"containerAction": true,
-	}))
+	})
 }
 
 func handlePullImage(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	engineIDStr, ok := variables["engineId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("engineId is required"))
-		return
-	}
-
-	engineID, err := uuid.Parse(engineIDStr)
+	engineID, err := graphql.ParseUUID(variables, "engineId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid engineId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	imageName, ok := variables["imageName"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("imageName is required"))
+	imageName, err := graphql.ParseStringRequired(variables, "imageName")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	agentIDStr, _ := variables["agentId"].(string)
-	agentID, _ := uuid.Parse(agentIDStr)
+	// Validate image name format
+	v := validation.NewValidator()
+	v.DockerImageName("imageName", imageName)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
+		return
+	}
+
+	// agentId is optional
+	agentID, _ := graphql.ParseUUID(variables, "agentId")
 
 	if err := service.PullImage(ctx, token, tenantID, engineID, agentID, imageName); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "pull image")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"pullImage": true,
-	}))
+	})
 }
 
 func handleBulkDeleteContainerEngines(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	idsRaw, ok := variables["ids"].([]interface{})
-	if !ok || len(idsRaw) == 0 {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("ids is required"))
-		return
-	}
-
-	ids := make([]uuid.UUID, 0, len(idsRaw))
-	for _, idRaw := range idsRaw {
-		idStr, ok := idRaw.(string)
-		if !ok {
-			continue
-		}
-		id, err := uuid.Parse(idStr)
-		if err != nil {
-			continue
-		}
-		ids = append(ids, id)
-	}
-
-	if len(ids) == 0 {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("no valid ids provided"))
+	ids, err := graphql.ParseBulkUUIDs(variables, "ids")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	deleted, err := service.BulkDelete(ctx, tenantID, ids)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "bulk delete container engines")
 		return
 	}
 
@@ -706,7 +627,44 @@ func handleBulkDeleteContainerEngines(ctx context.Context, w http.ResponseWriter
 		},
 	})
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"bulkDeleteContainerEngines": deleted,
-	}))
+	})
+}
+
+// ========================================
+// Helper Functions
+// ========================================
+
+func parseContainerEngineInput(inputRaw map[string]interface{}) (*ContainerEngineInput, error) {
+	input := &ContainerEngineInput{}
+	v := validation.NewValidator()
+
+	if name, ok := inputRaw["name"].(string); ok {
+		v.MaxLength("name", name, validation.MaxNameLength).SafeString("name", name)
+		input.Name = name
+	}
+	if description, ok := inputRaw["description"].(string); ok {
+		v.MaxLength("description", description, validation.MaxDescriptionLength)
+		input.Description = description
+	}
+	if engineType, ok := inputRaw["engineType"].(string); ok {
+		if err := graphql.ValidateEnum(engineType, graphql.ContainerEngineTypeValues, "engineType"); err != nil {
+			return nil, err
+		}
+		input.EngineType = EngineType(engineType)
+	}
+	if host, ok := inputRaw["host"].(string); ok {
+		v.MaxLength("host", host, 1024).SafeString("host", host)
+		input.Host = host
+	}
+	if artifactKey, ok := inputRaw["artifactKey"].(string); ok {
+		v.MaxLength("artifactKey", artifactKey, 255).SafeString("artifactKey", artifactKey)
+		input.ArtifactKey = artifactKey
+	}
+
+	if v.HasErrors() {
+		return nil, v.Errors()
+	}
+	return input, nil
 }

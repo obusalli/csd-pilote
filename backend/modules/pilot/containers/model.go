@@ -27,13 +27,13 @@ const (
 // ContainerEngine represents a Docker/Podman engine configuration
 type ContainerEngine struct {
 	ID            uuid.UUID    `json:"id" gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	TenantID      uuid.UUID    `json:"tenantId" gorm:"type:uuid;not null;index"`
+	TenantID      uuid.UUID    `json:"tenantId" gorm:"type:uuid;not null;index:idx_engine_tenant;index:idx_engine_tenant_status"`
 	Name          string       `json:"name" gorm:"not null"`
 	Description   string       `json:"description"`
 	EngineType    EngineType   `json:"engineType" gorm:"not null;default:'DOCKER'"`
 	Host          string       `json:"host" gorm:"not null"` // unix:///var/run/docker.sock or tcp://host:port
 	ArtifactKey   string       `json:"artifactKey"`          // Reference to TLS certs artifact (optional)
-	Status        EngineStatus `json:"status" gorm:"default:'PENDING'"`
+	Status        EngineStatus `json:"status" gorm:"default:'PENDING';index:idx_engine_tenant_status"`
 	StatusMessage string       `json:"statusMessage"`
 	// Cached info from engine
 	EngineVersion  string     `json:"engineVersion"`

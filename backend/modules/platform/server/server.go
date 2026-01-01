@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -11,12 +12,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
-
 	"csd-pilote/backend/modules/platform/config"
-	"csd-pilote/backend/modules/platform/csd-core"
+	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/database"
 	"csd-pilote/backend/modules/platform/graphql"
+	"csd-pilote/backend/modules/platform/metrics"
 	"csd-pilote/backend/modules/platform/middleware"
 	"csd-pilote/backend/modules/platform/websocket"
 )
@@ -54,26 +54,34 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	mux.HandleFunc(apiBasePath+"/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"healthy","timestamp":"` + time.Now().UTC().Format(time.RFC3339) + `"}`))
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":    "healthy",
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"version":   "1.0.0",
+		})
 	})
 
-	// GraphQL endpoint
-	mux.Handle(apiBasePath+"/query", graphqlHandler)
+	// Metrics endpoint - requires authentication
+	mux.Handle(apiBasePath+"/metrics", middleware.RequireAuth(metrics.MetricsHandler()))
 
-	// WebSocket endpoint for real-time events
+	// GraphQL endpoint - requires authentication
+	mux.Handle(apiBasePath+"/query", middleware.RequireAuth(graphqlHandler))
+
+	// WebSocket endpoint for real-time events - requires authentication
 	mux.HandleFunc(apiBasePath+"/ws", func(w http.ResponseWriter, r *http.Request) {
 		// Extract tenant and user from context (set by auth middleware)
-		tenantID, ok := r.Context().Value("tenantId").(uuid.UUID)
+		// Use typed context keys for type safety
+		tenantID, ok := middleware.GetTenantIDFromContext(r.Context())
 		if !ok {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			http.Error(w, `{"error":"Unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
-		userID, ok := r.Context().Value("userId").(uuid.UUID)
+		user, ok := middleware.GetUserFromContext(r.Context())
 		if !ok {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			http.Error(w, `{"error":"Unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
-		websocket.HandleWebSocket(w, r, tenantID, userID)
+		websocket.HandleWebSocket(w, r, tenantID, user.UserID)
 	})
 
 	// Initialize WebSocket hub
@@ -87,8 +95,13 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		cfg:           cfg,
 		csdCoreClient: csdCoreClient,
 		httpServer: &http.Server{
-			Addr:    fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port),
-			Handler: handler,
+			Addr:              fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port),
+			Handler:           handler,
+			ReadTimeout:       30 * time.Second,
+			ReadHeaderTimeout: 10 * time.Second,
+			WriteTimeout:      60 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			MaxHeaderBytes:    1 << 20, // 1 MB
 		},
 	}
 
@@ -123,10 +136,28 @@ func (s *Server) Start() error {
 	return nil
 }
 
+// securityHeaders adds security headers to all responses
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Prevent MIME type sniffing
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		// Prevent clickjacking
+		w.Header().Set("X-Frame-Options", "DENY")
+		// XSS protection (legacy, but still useful for older browsers)
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		// Referrer policy
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		// Permissions policy (disable unnecessary features)
+		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // corsMiddleware returns a CORS middleware
 func corsMiddleware(cfg config.CORSConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		return securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
 
 			// Check if origin is allowed
@@ -151,6 +182,6 @@ func corsMiddleware(cfg config.CORSConfig) func(http.Handler) http.Handler {
 			}
 
 			next.ServeHTTP(w, r)
-		})
+		}))
 	}
 }

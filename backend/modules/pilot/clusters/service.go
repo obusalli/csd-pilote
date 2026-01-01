@@ -3,6 +3,7 @@ package clusters
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -133,7 +134,9 @@ func (s *Service) Deploy(ctx context.Context, tenantID, userID uuid.UUID, input 
 
 // runDeployment executes the cluster deployment in background
 func (s *Service) runDeployment(clusterID, tenantID uuid.UUID, input *DeployClusterInput, nodes []ClusterNode) {
-	ctx := context.Background()
+	// Use timeout to prevent goroutine leaks (30 minutes max for cluster deployment)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
 	distribution := string(input.Distribution)
 
 	// Get a system token for background operations
@@ -169,7 +172,7 @@ func (s *Service) runDeployment(clusterID, tenantID uuid.UUID, input *DeployClus
 		}
 
 		if execution.Status != "SUCCESS" {
-			s.handleDeploymentError(clusterID, tenantID, firstMaster.ID, "Cluster initialization failed", fmt.Errorf(execution.Error))
+			s.handleDeploymentError(clusterID, tenantID, firstMaster.ID, "Cluster initialization failed", fmt.Errorf("%s", execution.Error))
 			return
 		}
 

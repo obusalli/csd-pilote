@@ -48,7 +48,7 @@ const (
 // Cluster represents a Kubernetes cluster configuration
 type Cluster struct {
 	ID            uuid.UUID     `json:"id" gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	TenantID      uuid.UUID     `json:"tenantId" gorm:"type:uuid;not null;index"`
+	TenantID      uuid.UUID     `json:"tenantId" gorm:"type:uuid;not null;index:idx_cluster_tenant;index:idx_cluster_tenant_status"`
 	Name          string        `json:"name" gorm:"not null"`
 	Description   string        `json:"description"`
 	Mode          ClusterMode   `json:"mode" gorm:"default:'CONNECT'"`       // CONNECT or DEPLOY
@@ -57,7 +57,7 @@ type Cluster struct {
 	AgentID       uuid.UUID     `json:"agentId" gorm:"type:uuid"`            // Agent for CONNECT mode (executes K8s commands)
 	ArtifactKey   string        `json:"artifactKey"`                         // Reference to kubeconfig artifact in csd-core
 	ApiServerURL  string        `json:"apiServerUrl"`                        // API server URL
-	Status        ClusterStatus `json:"status" gorm:"default:'PENDING'"`
+	Status        ClusterStatus `json:"status" gorm:"default:'PENDING';index:idx_cluster_tenant_status"`
 	StatusMessage string        `json:"statusMessage"`
 	LastCheckedAt *time.Time    `json:"lastCheckedAt"`
 	CreatedAt     time.Time     `json:"createdAt" gorm:"autoCreateTime"`

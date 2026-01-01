@@ -230,8 +230,21 @@ func (r *Repository) CountProfiles(tenantID uuid.UUID) (int64, error) {
 	return count, err
 }
 
-// AddRulesToProfile adds rules to a profile
-func (r *Repository) AddRulesToProfile(profileID uuid.UUID, ruleIDs []uuid.UUID) error {
+// AddRulesToProfile adds rules to a profile (validates tenant ownership)
+func (r *Repository) AddRulesToProfile(tenantID, profileID uuid.UUID, ruleIDs []uuid.UUID) error {
+	if len(ruleIDs) == 0 {
+		return nil
+	}
+
+	// Verify all rules belong to the same tenant (security: tenant isolation)
+	var count int64
+	r.db.Model(&FirewallRule{}).
+		Where("tenant_id = ? AND id IN ?", tenantID, ruleIDs).
+		Count(&count)
+	if count != int64(len(ruleIDs)) {
+		return gorm.ErrRecordNotFound // Some rules don't belong to this tenant
+	}
+
 	// Get current max sort order
 	var maxOrder int
 	r.db.Model(&FirewallProfileRule{}).
@@ -259,15 +272,15 @@ func (r *Repository) RemoveRulesFromProfile(profileID uuid.UUID, ruleIDs []uuid.
 	return r.db.Where("profile_id = ? AND rule_id IN ?", profileID, ruleIDs).Delete(&FirewallProfileRule{}).Error
 }
 
-// SetProfileRules replaces all rules in a profile
-func (r *Repository) SetProfileRules(profileID uuid.UUID, ruleIDs []uuid.UUID) error {
+// SetProfileRules replaces all rules in a profile (validates tenant ownership)
+func (r *Repository) SetProfileRules(tenantID, profileID uuid.UUID, ruleIDs []uuid.UUID) error {
 	// Remove all existing associations
 	if err := r.db.Where("profile_id = ?", profileID).Delete(&FirewallProfileRule{}).Error; err != nil {
 		return err
 	}
-	// Add new associations
+	// Add new associations (with tenant validation)
 	if len(ruleIDs) > 0 {
-		return r.AddRulesToProfile(profileID, ruleIDs)
+		return r.AddRulesToProfile(tenantID, profileID, ruleIDs)
 	}
 	return nil
 }

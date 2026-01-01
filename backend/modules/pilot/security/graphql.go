@@ -2,14 +2,12 @@ package security
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
-
-	"github.com/google/uuid"
 
 	csdcore "csd-pilote/backend/modules/platform/csd-core"
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/middleware"
+	"csd-pilote/backend/modules/platform/validation"
 )
 
 func init() {
@@ -219,34 +217,43 @@ func init() {
 func handleListRules(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	limit := 20
-	offset := 0
-	if l, ok := variables["limit"].(float64); ok {
-		limit = int(l)
-	}
-	if o, ok := variables["offset"].(float64); ok {
-		offset = int(o)
-	}
+	limit, offset := graphql.ParsePagination(variables)
 
 	var filter *FirewallRuleFilter
 	if f, ok := variables["filter"].(map[string]interface{}); ok {
 		filter = &FirewallRuleFilter{}
 		if search, ok := f["search"].(string); ok {
+			if len(search) > validation.MaxSearchLength {
+				graphql.WriteValidationError(w, "search term too long")
+				return
+			}
 			filter.Search = &search
 		}
 		if chain, ok := f["chain"].(string); ok {
+			if err := graphql.ValidateEnum(chain, graphql.RuleChainValues, "chain"); err != nil {
+				graphql.WriteValidationError(w, err.Error())
+				return
+			}
 			c := RuleChain(chain)
 			filter.Chain = &c
 		}
 		if protocol, ok := f["protocol"].(string); ok {
+			if err := graphql.ValidateEnum(protocol, graphql.RuleProtocolValues, "protocol"); err != nil {
+				graphql.WriteValidationError(w, err.Error())
+				return
+			}
 			p := RuleProtocol(protocol)
 			filter.Protocol = &p
 		}
 		if action, ok := f["action"].(string); ok {
+			if err := graphql.ValidateEnum(action, graphql.RuleActionValues, "action"); err != nil {
+				graphql.WriteValidationError(w, err.Error())
+				return
+			}
 			a := RuleAction(action)
 			filter.Action = &a
 		}
@@ -257,74 +264,68 @@ func handleListRules(ctx context.Context, w http.ResponseWriter, variables map[s
 
 	rules, count, err := service.ListRules(ctx, tenantID, filter, limit, offset)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list security rules")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"securityRules":      rules,
 		"securityRulesCount": count,
-	}))
+	})
 }
 
 func handleGetRule(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	rule, err := service.GetRule(ctx, tenantID, id)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "get security rule")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"securityRule": rule,
-	}))
+	})
 }
 
 func handleCountRules(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	count, err := service.CountRules(ctx, tenantID)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "count security rules")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"securityRulesCount": count,
-	}))
+	})
 }
 
 func handleCreateRule(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	user, ok := middleware.GetUserFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
@@ -332,127 +333,120 @@ func handleCreateRule(ctx context.Context, w http.ResponseWriter, variables map[
 
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
+		graphql.WriteValidationError(w, "input is required")
 		return
 	}
 
-	input := parseRuleInput(inputRaw)
+	input, err := parseRuleInput(inputRaw)
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
 
-	if input.Name == "" {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	// Validate required field
+	v := validation.NewValidator()
+	v.Required("name", input.Name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	rule, err := service.CreateRule(ctx, token, tenantID, user.UserID, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "create security rule")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"createSecurityRule": rule,
-	}))
+	})
 }
 
 func handleUpdateRule(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
+		graphql.WriteValidationError(w, "input is required")
 		return
 	}
 
-	input := parseRuleInput(inputRaw)
+	input, err := parseRuleInput(inputRaw)
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
 
 	rule, err := service.UpdateRule(ctx, token, tenantID, id, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "update security rule")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"updateSecurityRule": rule,
-	}))
+	})
 }
 
 func handleDeleteRule(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	if err := service.DeleteRule(ctx, token, tenantID, id); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "delete security rule")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"deleteSecurityRule": true,
-	}))
+	})
 }
 
 func handleBulkDeleteRules(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	idsRaw, ok := variables["ids"].([]interface{})
-	if !ok || len(idsRaw) == 0 {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("ids is required"))
-		return
-	}
-
-	ids := parseUUIDs(idsRaw)
-	if len(ids) == 0 {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("no valid ids provided"))
+	ids, err := graphql.ParseBulkUUIDs(variables, "ids")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	deleted, err := service.BulkDeleteRules(ctx, tenantID, ids)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "bulk delete security rules")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"bulkDeleteSecurityRules": deleted,
-	}))
+	})
 }
 
 // ========================================
@@ -462,23 +456,20 @@ func handleBulkDeleteRules(ctx context.Context, w http.ResponseWriter, variables
 func handleListProfiles(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	limit := 20
-	offset := 0
-	if l, ok := variables["limit"].(float64); ok {
-		limit = int(l)
-	}
-	if o, ok := variables["offset"].(float64); ok {
-		offset = int(o)
-	}
+	limit, offset := graphql.ParsePagination(variables)
 
 	var filter *FirewallProfileFilter
 	if f, ok := variables["filter"].(map[string]interface{}); ok {
 		filter = &FirewallProfileFilter{}
 		if search, ok := f["search"].(string); ok {
+			if len(search) > validation.MaxSearchLength {
+				graphql.WriteValidationError(w, "search term too long")
+				return
+			}
 			filter.Search = &search
 		}
 		if isDefault, ok := f["isDefault"].(bool); ok {
@@ -491,74 +482,68 @@ func handleListProfiles(ctx context.Context, w http.ResponseWriter, variables ma
 
 	profiles, count, err := service.ListProfiles(ctx, tenantID, filter, limit, offset)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list security profiles")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"securityProfiles":      profiles,
 		"securityProfilesCount": count,
-	}))
+	})
 }
 
 func handleGetProfile(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	profile, err := service.GetProfileWithRules(ctx, tenantID, id)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "get security profile")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"securityProfile": profile,
-	}))
+	})
 }
 
 func handleCountProfiles(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	count, err := service.CountProfiles(ctx, tenantID)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "count security profiles")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"securityProfilesCount": count,
-	}))
+	})
 }
 
 func handleCreateProfile(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	user, ok := middleware.GetUserFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
@@ -566,171 +551,154 @@ func handleCreateProfile(ctx context.Context, w http.ResponseWriter, variables m
 
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
+		graphql.WriteValidationError(w, "input is required")
 		return
 	}
 
-	input := parseProfileInput(inputRaw)
+	input, err := parseProfileInputWithValidation(inputRaw)
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
 
-	if input.Name == "" {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	// Validate required fields
+	v := validation.NewValidator()
+	v.Required("name", input.Name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	profile, err := service.CreateProfile(ctx, token, tenantID, user.UserID, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "create security profile")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"createSecurityProfile": profile,
-	}))
+	})
 }
 
 func handleUpdateProfile(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
+		graphql.WriteValidationError(w, "input is required")
 		return
 	}
 
-	input := parseProfileInput(inputRaw)
+	input, err := parseProfileInputWithValidation(inputRaw)
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
 
 	profile, err := service.UpdateProfile(ctx, token, tenantID, id, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "update security profile")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"updateSecurityProfile": profile,
-	}))
+	})
 }
 
 func handleDeleteProfile(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	if err := service.DeleteProfile(ctx, token, tenantID, id); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "delete security profile")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"deleteSecurityProfile": true,
-	}))
+	})
 }
 
 func handleAddRulesToProfile(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	profileIDStr, ok := variables["profileId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("profileId is required"))
-		return
-	}
-
-	profileID, err := uuid.Parse(profileIDStr)
+	profileID, err := graphql.ParseUUID(variables, "profileId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid profileId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	ruleIDsRaw, ok := variables["ruleIds"].([]interface{})
-	if !ok || len(ruleIDsRaw) == 0 {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("ruleIds is required"))
+	ruleIDs, err := graphql.ParseBulkUUIDs(variables, "ruleIds")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
-
-	ruleIDs := parseUUIDs(ruleIDsRaw)
 
 	if err := service.AddRulesToProfile(ctx, tenantID, profileID, ruleIDs); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "add rules to profile")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"addRulesToSecurityProfile": true,
-	}))
+	})
 }
 
 func handleRemoveRulesFromProfile(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	profileIDStr, ok := variables["profileId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("profileId is required"))
-		return
-	}
-
-	profileID, err := uuid.Parse(profileIDStr)
+	profileID, err := graphql.ParseUUID(variables, "profileId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid profileId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	ruleIDsRaw, ok := variables["ruleIds"].([]interface{})
-	if !ok || len(ruleIDsRaw) == 0 {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("ruleIds is required"))
+	ruleIDs, err := graphql.ParseBulkUUIDs(variables, "ruleIds")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
-
-	ruleIDs := parseUUIDs(ruleIDsRaw)
 
 	if err := service.RemoveRulesFromProfile(ctx, tenantID, profileID, ruleIDs); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "remove rules from profile")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"removeRulesFromSecurityProfile": true,
-	}))
+	})
 }
 
 // ========================================
@@ -740,26 +708,27 @@ func handleRemoveRulesFromProfile(ctx context.Context, w http.ResponseWriter, va
 func handleListTemplates(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	limit := 20
-	offset := 0
-	if l, ok := variables["limit"].(float64); ok {
-		limit = int(l)
-	}
-	if o, ok := variables["offset"].(float64); ok {
-		offset = int(o)
-	}
+	limit, offset := graphql.ParsePagination(variables)
 
 	var filter *FirewallTemplateFilter
 	if f, ok := variables["filter"].(map[string]interface{}); ok {
 		filter = &FirewallTemplateFilter{}
 		if search, ok := f["search"].(string); ok {
+			if len(search) > validation.MaxSearchLength {
+				graphql.WriteValidationError(w, "search term too long")
+				return
+			}
 			filter.Search = &search
 		}
 		if category, ok := f["category"].(string); ok {
+			if err := graphql.ValidateEnum(category, graphql.TemplateCategoryValues, "category"); err != nil {
+				graphql.WriteValidationError(w, err.Error())
+				return
+			}
 			c := TemplateCategory(category)
 			filter.Category = &c
 		}
@@ -770,74 +739,68 @@ func handleListTemplates(ctx context.Context, w http.ResponseWriter, variables m
 
 	templates, count, err := service.ListTemplates(ctx, tenantID, filter, limit, offset)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list security templates")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"securityTemplates":      templates,
 		"securityTemplatesCount": count,
-	}))
+	})
 }
 
 func handleGetTemplate(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	template, err := service.GetTemplate(ctx, tenantID, id)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "get security template")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"securityTemplate": template,
-	}))
+	})
 }
 
 func handleCountTemplates(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	count, err := service.CountTemplates(ctx, tenantID)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "count security templates")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"securityTemplatesCount": count,
-	}))
+	})
 }
 
 func handleCreateTemplate(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	user, ok := middleware.GetUserFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
@@ -845,146 +808,133 @@ func handleCreateTemplate(ctx context.Context, w http.ResponseWriter, variables 
 
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
+		graphql.WriteValidationError(w, "input is required")
 		return
 	}
 
-	input := parseTemplateInput(inputRaw)
+	input, err := parseTemplateInputWithValidation(inputRaw)
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
 
-	if input.Name == "" {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	// Validate required fields
+	v := validation.NewValidator()
+	v.Required("name", input.Name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	template, err := service.CreateTemplate(ctx, token, tenantID, user.UserID, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "create security template")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"createSecurityTemplate": template,
-	}))
+	})
 }
 
 func handleUpdateTemplate(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
+		graphql.WriteValidationError(w, "input is required")
 		return
 	}
 
-	input := parseTemplateInput(inputRaw)
+	input, err := parseTemplateInputWithValidation(inputRaw)
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
 
 	template, err := service.UpdateTemplate(ctx, token, tenantID, id, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "update security template")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"updateSecurityTemplate": template,
-	}))
+	})
 }
 
 func handleDeleteTemplate(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	if err := service.DeleteTemplate(ctx, token, tenantID, id); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "delete security template")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"deleteSecurityTemplate": true,
-	}))
+	})
 }
 
 func handleApplyTemplate(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	user, ok := middleware.GetUserFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	templateIDStr, ok := variables["templateId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("templateId is required"))
-		return
-	}
-
-	profileIDStr, ok := variables["profileId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("profileId is required"))
-		return
-	}
-
-	templateID, err := uuid.Parse(templateIDStr)
+	templateID, err := graphql.ParseUUID(variables, "templateId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid templateId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	profileID, err := uuid.Parse(profileIDStr)
+	profileID, err := graphql.ParseUUID(variables, "profileId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid profileId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	if err := service.ApplyTemplateToProfile(ctx, token, tenantID, user.UserID, templateID, profileID); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "apply security template")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"applySecurityTemplate": true,
-	}))
+	})
 }
 
 // ========================================
@@ -994,36 +944,53 @@ func handleApplyTemplate(ctx context.Context, w http.ResponseWriter, variables m
 func handleListDeployments(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	limit := 20
-	offset := 0
-	if l, ok := variables["limit"].(float64); ok {
-		limit = int(l)
-	}
-	if o, ok := variables["offset"].(float64); ok {
-		offset = int(o)
-	}
+	limit, offset := graphql.ParsePagination(variables)
 
 	var filter *FirewallDeploymentFilter
 	if f, ok := variables["filter"].(map[string]interface{}); ok {
 		filter = &FirewallDeploymentFilter{}
 		if search, ok := f["search"].(string); ok {
+			if len(search) > validation.MaxSearchLength {
+				graphql.WriteValidationError(w, "search term too long")
+				return
+			}
 			filter.Search = &search
 		}
 		if profileId, ok := f["profileId"].(string); ok {
+			v := validation.NewValidator()
+			v.UUID("profileId", profileId)
+			if v.HasErrors() {
+				graphql.WriteValidationError(w, v.FirstError())
+				return
+			}
 			filter.ProfileID = &profileId
 		}
 		if agentId, ok := f["agentId"].(string); ok {
+			v := validation.NewValidator()
+			v.UUID("agentId", agentId)
+			if v.HasErrors() {
+				graphql.WriteValidationError(w, v.FirstError())
+				return
+			}
 			filter.AgentID = &agentId
 		}
 		if action, ok := f["action"].(string); ok {
+			if err := graphql.ValidateEnum(action, graphql.DeploymentStatusValues, "action"); err != nil {
+				graphql.WriteValidationError(w, err.Error())
+				return
+			}
 			a := DeploymentAction(action)
 			filter.Action = &a
 		}
 		if status, ok := f["status"].(string); ok {
+			if err := graphql.ValidateEnum(status, graphql.DeploymentStatusValues, "status"); err != nil {
+				graphql.WriteValidationError(w, err.Error())
+				return
+			}
 			s := DeploymentStatus(status)
 			filter.Status = &s
 		}
@@ -1031,62 +998,56 @@ func handleListDeployments(ctx context.Context, w http.ResponseWriter, variables
 
 	deployments, count, err := service.ListDeployments(ctx, tenantID, filter, limit, offset)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list security deployments")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"securityDeployments":      deployments,
 		"securityDeploymentsCount": count,
-	}))
+	})
 }
 
 func handleGetDeployment(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
-	idStr, ok := variables["id"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("id is required"))
-		return
-	}
-
-	id, err := uuid.Parse(idStr)
+	id, err := graphql.ParseUUID(variables, "id")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid id"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	deployment, err := service.GetDeployment(ctx, tenantID, id)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "get security deployment")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"securityDeployment": deployment,
-	}))
+	})
 }
 
 func handleCountDeployments(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	count, err := service.CountDeployments(ctx, tenantID)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "count security deployments")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"securityDeploymentsCount": count,
-	}))
+	})
 }
 
 func handleListSecurityAgents(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
@@ -1095,47 +1056,56 @@ func handleListSecurityAgents(ctx context.Context, w http.ResponseWriter, variab
 	client := csdcore.GetClient()
 	agents, err := client.ListAgentsByCapability(ctx, token, "nftables")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list security agents")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"securityAgents": agents,
-	}))
+	})
 }
 
 func handleDeployProfile(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	user, ok := middleware.GetUserFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	profileIDStr, ok := variables["profileId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("profileId is required"))
+	profileIDStr, err := graphql.ParseStringRequired(variables, "profileId")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+	v := validation.NewValidator()
+	v.UUID("profileId", profileIDStr)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
-	agentIDStr, ok := variables["agentId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("agentId is required"))
+	agentIDStr, err := graphql.ParseStringRequired(variables, "agentId")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+	v = validation.NewValidator()
+	v.UUID("agentId", agentIDStr)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	// Check for dry-run mode
-	dryRun := false
-	if dr, ok := variables["dryRun"].(bool); ok {
-		dryRun = dr
-	}
+	dryRun := graphql.ParseBool(variables, "dryRun", false)
 
 	input := &DeploymentInput{
 		ProfileID: profileIDStr,
@@ -1146,127 +1116,109 @@ func handleDeployProfile(ctx context.Context, w http.ResponseWriter, variables m
 
 	deployment, err := service.DeployProfile(ctx, token, tenantID, user.UserID, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "deploy security profile")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"deploySecurityProfile": deployment,
-	}))
+	})
 }
 
 func handleRollbackDeployment(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	user, ok := middleware.GetUserFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	deploymentIDStr, ok := variables["deploymentId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("deploymentId is required"))
-		return
-	}
-
-	deploymentID, err := uuid.Parse(deploymentIDStr)
+	deploymentID, err := graphql.ParseUUID(variables, "deploymentId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid deploymentId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	rollback, err := service.RollbackDeployment(ctx, token, tenantID, user.UserID, deploymentID)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "rollback security deployment")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"rollbackSecurityDeployment": rollback,
-	}))
+	})
 }
 
 func handleAuditDeployment(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	user, ok := middleware.GetUserFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	agentIDStr, ok := variables["agentId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("agentId is required"))
-		return
-	}
-
-	agentID, err := uuid.Parse(agentIDStr)
+	agentID, err := graphql.ParseUUID(variables, "agentId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid agentId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	audit, err := service.AuditDeployment(ctx, token, tenantID, user.UserID, agentID)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "audit security deployment")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"auditSecurityDeployment": audit,
-	}))
+	})
 }
 
 func handleFlushRules(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	user, ok := middleware.GetUserFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	agentIDStr, ok := variables["agentId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("agentId is required"))
-		return
-	}
-
-	agentID, err := uuid.Parse(agentIDStr)
+	agentID, err := graphql.ParseUUID(variables, "agentId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid agentId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	flush, err := service.FlushRules(ctx, token, tenantID, user.UserID, agentID)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "flush security rules")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"flushSecurityRules": flush,
-	}))
+	})
 }
 
 // ========================================
@@ -1276,45 +1228,39 @@ func handleFlushRules(ctx context.Context, w http.ResponseWriter, variables map[
 func handleExportProfile(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	profileIDStr, ok := variables["profileId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("profileId is required"))
-		return
-	}
-
-	profileID, err := uuid.Parse(profileIDStr)
+	profileID, err := graphql.ParseUUID(variables, "profileId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid profileId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	export, err := service.ExportProfile(ctx, token, tenantID, profileID)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "export security profile")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"exportSecurityProfile": export,
-	}))
+	})
 }
 
 func handleImportProfile(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	user, ok := middleware.GetUserFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
@@ -1322,170 +1268,271 @@ func handleImportProfile(ctx context.Context, w http.ResponseWriter, variables m
 
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
+		graphql.WriteValidationError(w, "input is required")
 		return
 	}
 
-	input := parseProfileImportInput(inputRaw)
+	input, err := parseProfileImportInputWithValidation(inputRaw)
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
 
-	if input.Name == "" {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	// Validate required fields
+	v := validation.NewValidator()
+	v.Required("name", input.Name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	profile, err := service.ImportProfile(ctx, token, tenantID, user.UserID, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "import security profile")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"importSecurityProfile": profile,
-	}))
+	})
 }
 
-func parseProfileImportInput(inputRaw map[string]interface{}) *ProfileImportInput {
+func parseProfileImportInputWithValidation(inputRaw map[string]interface{}) (*ProfileImportInput, error) {
+	v := validation.NewValidator()
 	input := &ProfileImportInput{}
+
 	if name, ok := inputRaw["name"].(string); ok {
+		v.MaxLength("name", name, validation.MaxNameLength).SafeString("name", name)
 		input.Name = name
 	}
 	if description, ok := inputRaw["description"].(string); ok {
+		v.MaxLength("description", description, validation.MaxDescriptionLength)
 		input.Description = description
 	}
+
 	if rules, ok := inputRaw["rules"].([]interface{}); ok {
+		// Limit number of rules that can be imported
+		v.MaxItems("rules", len(rules), validation.MaxBulkIDs)
 		input.Rules = make([]TemplateRuleDefinition, 0, len(rules))
-		for _, r := range rules {
+		for i, r := range rules {
 			if ruleMap, ok := r.(map[string]interface{}); ok {
 				rule := TemplateRuleDefinition{}
 				if name, ok := ruleMap["name"].(string); ok {
+					v.MaxLength("rules.name", name, validation.MaxNameLength).SafeString("rules.name", name)
 					rule.Name = name
 				}
 				if description, ok := ruleMap["description"].(string); ok {
+					v.MaxLength("rules.description", description, validation.MaxDescriptionLength)
 					rule.Description = description
 				}
 				if chain, ok := ruleMap["chain"].(string); ok {
+					if err := graphql.ValidateEnum(chain, graphql.RuleChainValues, "rules.chain"); err != nil {
+						return nil, err
+					}
 					rule.Chain = RuleChain(chain)
 				}
 				if priority, ok := ruleMap["priority"].(float64); ok {
-					rule.Priority = int(priority)
+					p := int(priority)
+					v.Range("rules.priority", p, 0, 65535)
+					rule.Priority = p
 				}
 				if protocol, ok := ruleMap["protocol"].(string); ok {
+					if err := graphql.ValidateEnum(protocol, graphql.RuleProtocolValues, "rules.protocol"); err != nil {
+						return nil, err
+					}
 					rule.Protocol = RuleProtocol(protocol)
 				}
 				if sourceIp, ok := ruleMap["sourceIp"].(string); ok {
+					if sourceIp != "" && sourceIp != "any" {
+						v.SafeString("rules.sourceIp", sourceIp)
+					}
 					rule.SourceIP = sourceIp
 				}
 				if sourcePort, ok := ruleMap["sourcePort"].(string); ok {
+					if sourcePort != "" {
+						v.PortRange("rules.sourcePort", sourcePort)
+					}
 					rule.SourcePort = sourcePort
 				}
 				if destIp, ok := ruleMap["destIp"].(string); ok {
+					if destIp != "" && destIp != "any" {
+						v.SafeString("rules.destIp", destIp)
+					}
 					rule.DestIP = destIp
 				}
 				if destPort, ok := ruleMap["destPort"].(string); ok {
+					if destPort != "" {
+						v.PortRange("rules.destPort", destPort)
+					}
 					rule.DestPort = destPort
 				}
 				if action, ok := ruleMap["action"].(string); ok {
+					if err := graphql.ValidateEnum(action, graphql.RuleActionValues, "rules.action"); err != nil {
+						return nil, err
+					}
 					rule.Action = RuleAction(action)
 				}
 				if comment, ok := ruleMap["comment"].(string); ok {
+					v.MaxLength("rules.comment", comment, 255).SafeString("rules.comment", comment)
 					rule.Comment = comment
 				}
 				input.Rules = append(input.Rules, rule)
+				// Stop early if we've hit too many errors
+				if i > 0 && v.HasErrors() {
+					break
+				}
 			}
 		}
 	}
-	return input
+
+	if v.HasErrors() {
+		return nil, v.Errors()
+	}
+	return input, nil
 }
 
 // ========================================
 // Helper Functions
 // ========================================
 
-func parseRuleInput(inputRaw map[string]interface{}) *FirewallRuleInput {
+func parseRuleInput(inputRaw map[string]interface{}) (*FirewallRuleInput, error) {
 	input := &FirewallRuleInput{}
+	v := validation.NewValidator()
+
 	if name, ok := inputRaw["name"].(string); ok {
+		v.MaxLength("name", name, validation.MaxNameLength).SafeString("name", name)
 		input.Name = name
 	}
 	if description, ok := inputRaw["description"].(string); ok {
+		v.MaxLength("description", description, validation.MaxDescriptionLength)
 		input.Description = description
 	}
 	if chain, ok := inputRaw["chain"].(string); ok {
+		if err := graphql.ValidateEnum(chain, graphql.RuleChainValues, "chain"); err != nil {
+			return nil, err
+		}
 		input.Chain = RuleChain(chain)
 	}
 	if priority, ok := inputRaw["priority"].(float64); ok {
-		input.Priority = int(priority)
+		p := int(priority)
+		v.Range("priority", p, 0, 65535)
+		input.Priority = p
 	}
 	if protocol, ok := inputRaw["protocol"].(string); ok {
+		if err := graphql.ValidateEnum(protocol, graphql.RuleProtocolValues, "protocol"); err != nil {
+			return nil, err
+		}
 		input.Protocol = RuleProtocol(protocol)
 	}
 	if sourceIp, ok := inputRaw["sourceIp"].(string); ok {
+		if sourceIp != "" && sourceIp != "any" {
+			v.SafeString("sourceIp", sourceIp)
+		}
 		input.SourceIP = sourceIp
 	}
 	if sourcePort, ok := inputRaw["sourcePort"].(string); ok {
+		if sourcePort != "" {
+			v.PortRange("sourcePort", sourcePort)
+		}
 		input.SourcePort = sourcePort
 	}
 	if destIp, ok := inputRaw["destIp"].(string); ok {
+		if destIp != "" && destIp != "any" {
+			v.SafeString("destIp", destIp)
+		}
 		input.DestIP = destIp
 	}
 	if destPort, ok := inputRaw["destPort"].(string); ok {
+		if destPort != "" {
+			v.PortRange("destPort", destPort)
+		}
 		input.DestPort = destPort
 	}
 	if action, ok := inputRaw["action"].(string); ok {
+		if err := graphql.ValidateEnum(action, graphql.RuleActionValues, "action"); err != nil {
+			return nil, err
+		}
 		input.Action = RuleAction(action)
 	}
 	// Interface matching
 	if inInterface, ok := inputRaw["inInterface"].(string); ok {
+		v.MaxLength("inInterface", inInterface, 64).SafeString("inInterface", inInterface)
 		input.InInterface = inInterface
 	}
 	if outInterface, ok := inputRaw["outInterface"].(string); ok {
+		v.MaxLength("outInterface", outInterface, 64).SafeString("outInterface", outInterface)
 		input.OutInterface = outInterface
 	}
 	// Connection tracking
 	if ctState, ok := inputRaw["ctState"].(string); ok {
+		v.MaxLength("ctState", ctState, 128).SafeString("ctState", ctState)
 		input.CTState = ctState
 	}
 	// Rate limiting
 	if rateLimit, ok := inputRaw["rateLimit"].(string); ok {
+		v.MaxLength("rateLimit", rateLimit, 64).SafeString("rateLimit", rateLimit)
 		input.RateLimit = rateLimit
 	}
 	if rateBurst, ok := inputRaw["rateBurst"].(float64); ok {
-		input.RateBurst = int(rateBurst)
+		rb := int(rateBurst)
+		v.Range("rateBurst", rb, 0, 65535)
+		input.RateBurst = rb
 	}
 	if limitOver, ok := inputRaw["limitOver"].(string); ok {
+		v.MaxLength("limitOver", limitOver, 64).SafeString("limitOver", limitOver)
 		input.LimitOver = limitOver
 	}
 	// NAT options
 	if natToAddr, ok := inputRaw["natToAddr"].(string); ok {
+		v.MaxLength("natToAddr", natToAddr, 128).SafeString("natToAddr", natToAddr)
 		input.NatToAddr = natToAddr
 	}
 	if natToPort, ok := inputRaw["natToPort"].(string); ok {
+		if natToPort != "" {
+			v.PortRange("natToPort", natToPort)
+		}
 		input.NatToPort = natToPort
 	}
 	// Logging options
 	if logPrefix, ok := inputRaw["logPrefix"].(string); ok {
+		v.MaxLength("logPrefix", logPrefix, 64).SafeString("logPrefix", logPrefix)
 		input.LogPrefix = logPrefix
 	}
 	if logLevel, ok := inputRaw["logLevel"].(string); ok {
+		v.MaxLength("logLevel", logLevel, 32).SafeString("logLevel", logLevel)
 		input.LogLevel = logLevel
 	}
 	if ruleExpr, ok := inputRaw["ruleExpr"].(string); ok {
+		// Validate nftables expression for safety
+		v.NftablesExpression("ruleExpr", ruleExpr)
+		v.MaxLength("ruleExpr", ruleExpr, 2000)
 		input.RuleExpr = ruleExpr
 	}
 	if comment, ok := inputRaw["comment"].(string); ok {
+		v.MaxLength("comment", comment, 255).SafeString("comment", comment)
 		input.Comment = comment
 	}
 	if enabled, ok := inputRaw["enabled"].(bool); ok {
 		input.Enabled = &enabled
 	}
-	return input
+
+	if v.HasErrors() {
+		return nil, v.Errors()
+	}
+
+	return input, nil
 }
 
-func parseProfileInput(inputRaw map[string]interface{}) *FirewallProfileInput {
+func parseProfileInputWithValidation(inputRaw map[string]interface{}) (*FirewallProfileInput, error) {
+	v := validation.NewValidator()
 	input := &FirewallProfileInput{}
+
 	if name, ok := inputRaw["name"].(string); ok {
+		v.MaxLength("name", name, validation.MaxNameLength).SafeString("name", name)
 		input.Name = name
 	}
 	if description, ok := inputRaw["description"].(string); ok {
+		v.MaxLength("description", description, validation.MaxDescriptionLength)
 		input.Description = description
 	}
 	if isDefault, ok := inputRaw["isDefault"].(bool); ok {
@@ -1495,21 +1542,27 @@ func parseProfileInput(inputRaw map[string]interface{}) *FirewallProfileInput {
 		input.Enabled = &enabled
 	}
 	if ruleIds, ok := inputRaw["ruleIds"].([]interface{}); ok {
+		v.MaxItems("ruleIds", len(ruleIds), validation.MaxBulkIDs)
 		input.RuleIDs = make([]string, 0, len(ruleIds))
 		for _, id := range ruleIds {
 			if idStr, ok := id.(string); ok {
+				v.UUID("ruleIds", idStr)
 				input.RuleIDs = append(input.RuleIDs, idStr)
 			}
 		}
 	}
-	// Default policies
+	// Default policies - validate against allowed values
+	policyValues := []string{"accept", "drop", "reject", ""}
 	if inputPolicy, ok := inputRaw["inputPolicy"].(string); ok {
+		v.Enum("inputPolicy", inputPolicy, policyValues)
 		input.InputPolicy = inputPolicy
 	}
 	if outputPolicy, ok := inputRaw["outputPolicy"].(string); ok {
+		v.Enum("outputPolicy", outputPolicy, policyValues)
 		input.OutputPolicy = outputPolicy
 	}
 	if forwardPolicy, ok := inputRaw["forwardPolicy"].(string); ok {
+		v.Enum("forwardPolicy", forwardPolicy, policyValues)
 		input.ForwardPolicy = forwardPolicy
 	}
 	// Features
@@ -1531,77 +1584,109 @@ func parseProfileInput(inputRaw map[string]interface{}) *FirewallProfileInput {
 	if enableIpv6, ok := inputRaw["enableIpv6"].(bool); ok {
 		input.EnableIPv6 = &enableIpv6
 	}
-	return input
+
+	if v.HasErrors() {
+		return nil, v.Errors()
+	}
+	return input, nil
 }
 
-func parseTemplateInput(inputRaw map[string]interface{}) *FirewallTemplateInput {
+func parseTemplateInputWithValidation(inputRaw map[string]interface{}) (*FirewallTemplateInput, error) {
+	v := validation.NewValidator()
 	input := &FirewallTemplateInput{}
+
 	if name, ok := inputRaw["name"].(string); ok {
+		v.MaxLength("name", name, validation.MaxNameLength).SafeString("name", name)
 		input.Name = name
 	}
 	if description, ok := inputRaw["description"].(string); ok {
+		v.MaxLength("description", description, validation.MaxDescriptionLength)
 		input.Description = description
 	}
 	if category, ok := inputRaw["category"].(string); ok {
+		if err := graphql.ValidateEnum(category, graphql.TemplateCategoryValues, "category"); err != nil {
+			return nil, err
+		}
 		input.Category = TemplateCategory(category)
 	}
+
 	if rules, ok := inputRaw["rules"].([]interface{}); ok {
+		// Limit number of rules in a template
+		v.MaxItems("rules", len(rules), validation.MaxBulkIDs)
 		input.Rules = make([]TemplateRuleDefinition, 0, len(rules))
-		for _, r := range rules {
+		for i, r := range rules {
 			if ruleMap, ok := r.(map[string]interface{}); ok {
 				rule := TemplateRuleDefinition{}
 				if name, ok := ruleMap["name"].(string); ok {
+					v.MaxLength("rules.name", name, validation.MaxNameLength).SafeString("rules.name", name)
 					rule.Name = name
 				}
 				if description, ok := ruleMap["description"].(string); ok {
+					v.MaxLength("rules.description", description, validation.MaxDescriptionLength)
 					rule.Description = description
 				}
 				if chain, ok := ruleMap["chain"].(string); ok {
+					if err := graphql.ValidateEnum(chain, graphql.RuleChainValues, "rules.chain"); err != nil {
+						return nil, err
+					}
 					rule.Chain = RuleChain(chain)
 				}
 				if priority, ok := ruleMap["priority"].(float64); ok {
-					rule.Priority = int(priority)
+					p := int(priority)
+					v.Range("rules.priority", p, 0, 65535)
+					rule.Priority = p
 				}
 				if protocol, ok := ruleMap["protocol"].(string); ok {
+					if err := graphql.ValidateEnum(protocol, graphql.RuleProtocolValues, "rules.protocol"); err != nil {
+						return nil, err
+					}
 					rule.Protocol = RuleProtocol(protocol)
 				}
 				if sourceIp, ok := ruleMap["sourceIp"].(string); ok {
+					if sourceIp != "" && sourceIp != "any" {
+						v.SafeString("rules.sourceIp", sourceIp)
+					}
 					rule.SourceIP = sourceIp
 				}
 				if sourcePort, ok := ruleMap["sourcePort"].(string); ok {
+					if sourcePort != "" {
+						v.PortRange("rules.sourcePort", sourcePort)
+					}
 					rule.SourcePort = sourcePort
 				}
 				if destIp, ok := ruleMap["destIp"].(string); ok {
+					if destIp != "" && destIp != "any" {
+						v.SafeString("rules.destIp", destIp)
+					}
 					rule.DestIP = destIp
 				}
 				if destPort, ok := ruleMap["destPort"].(string); ok {
+					if destPort != "" {
+						v.PortRange("rules.destPort", destPort)
+					}
 					rule.DestPort = destPort
 				}
 				if action, ok := ruleMap["action"].(string); ok {
+					if err := graphql.ValidateEnum(action, graphql.RuleActionValues, "rules.action"); err != nil {
+						return nil, err
+					}
 					rule.Action = RuleAction(action)
 				}
 				if comment, ok := ruleMap["comment"].(string); ok {
+					v.MaxLength("rules.comment", comment, 255).SafeString("rules.comment", comment)
 					rule.Comment = comment
 				}
 				input.Rules = append(input.Rules, rule)
+				// Stop early if we've hit too many errors
+				if i > 0 && v.HasErrors() {
+					break
+				}
 			}
 		}
 	}
-	return input
-}
 
-func parseUUIDs(idsRaw []interface{}) []uuid.UUID {
-	ids := make([]uuid.UUID, 0, len(idsRaw))
-	for _, idRaw := range idsRaw {
-		idStr, ok := idRaw.(string)
-		if !ok {
-			continue
-		}
-		id, err := uuid.Parse(idStr)
-		if err != nil {
-			continue
-		}
-		ids = append(ids, id)
+	if v.HasErrors() {
+		return nil, v.Errors()
 	}
-	return ids
+	return input, nil
 }

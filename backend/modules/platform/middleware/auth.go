@@ -28,21 +28,32 @@ type UserClaims struct {
 }
 
 // AuthMiddleware validates JWT tokens via csd-core
+// Security: If a Bearer token is provided, it MUST be valid. Fail-closed approach.
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Extract token from Authorization header
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
+			// No token provided - proceed without auth (RequireAuth will enforce if needed)
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			next.ServeHTTP(w, r)
+			// Malformed Authorization header - reject (fail-closed)
+			w.Header().Set("Content-Type", "application/json")
+			http.Error(w, `{"errors":[{"message":"Invalid Authorization header format"}]}`, http.StatusUnauthorized)
 			return
 		}
+
 		tokenString := parts[1]
+		if tokenString == "" {
+			// Empty token - reject
+			w.Header().Set("Content-Type", "application/json")
+			http.Error(w, `{"errors":[{"message":"Empty token"}]}`, http.StatusUnauthorized)
+			return
+		}
 
 		// Parse JWT locally (faster than calling csd-core for every request)
 		cfg := config.GetConfig()
@@ -81,7 +92,10 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			}
 		}
 
-		next.ServeHTTP(w, r)
+		// Token was provided but validation failed - REJECT (fail-closed security)
+		// This prevents bypassing authentication when csd-core is unavailable
+		w.Header().Set("Content-Type", "application/json")
+		http.Error(w, `{"errors":[{"message":"Invalid or expired token"}]}`, http.StatusUnauthorized)
 	})
 }
 

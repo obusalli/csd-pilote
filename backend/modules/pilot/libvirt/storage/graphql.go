@@ -2,14 +2,15 @@ package storage
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
-
-	"github.com/google/uuid"
 
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/middleware"
+	"csd-pilote/backend/modules/platform/validation"
 )
+
+// Volume format values for validation
+var volumeFormatValues = []string{"raw", "qcow2", "qcow", "vmdk", "vdi", ""}
 
 func init() {
 	service := NewService()
@@ -67,21 +68,15 @@ func init() {
 func handleListPools(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
@@ -89,6 +84,10 @@ func handleListPools(ctx context.Context, w http.ResponseWriter, variables map[s
 	if f, ok := variables["filter"].(map[string]interface{}); ok {
 		filter = &StoragePoolFilter{}
 		if search, ok := f["search"].(string); ok {
+			if len(search) > validation.MaxSearchLength {
+				graphql.WriteValidationError(w, "search term too long")
+				return
+			}
 			filter.Search = &search
 		}
 		if active, ok := f["active"].(bool); ok {
@@ -98,192 +97,197 @@ func handleListPools(ctx context.Context, w http.ResponseWriter, variables map[s
 
 	pools, err := service.ListPools(ctx, token, tenantID, hypervisorID, filter)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list storage pools")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"storagePools":      pools,
 		"storagePoolsCount": len(pools),
-	}))
+	})
 }
 
 func handleGetPool(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	name, ok := variables["name"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	name, err := graphql.ParseStringRequired(variables, "name")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	v := validation.NewValidator()
+	v.MaxLength("name", name, validation.MaxNameLength).SafeString("name", name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	pool, err := service.GetPool(ctx, token, tenantID, hypervisorID, name)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "get storage pool")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"storagePool": pool,
-	}))
+	})
 }
 
 func handleStartPool(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	name, ok := variables["name"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	name, err := graphql.ParseStringRequired(variables, "name")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	v := validation.NewValidator()
+	v.MaxLength("name", name, validation.MaxNameLength).SafeString("name", name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	pool, err := service.StartPool(ctx, token, tenantID, hypervisorID, name)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "start storage pool")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"startStoragePool": pool,
-	}))
+	})
 }
 
 func handleStopPool(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	name, ok := variables["name"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	name, err := graphql.ParseStringRequired(variables, "name")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	v := validation.NewValidator()
+	v.MaxLength("name", name, validation.MaxNameLength).SafeString("name", name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	pool, err := service.StopPool(ctx, token, tenantID, hypervisorID, name)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "stop storage pool")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"stopStoragePool": pool,
-	}))
+	})
 }
 
 func handleRefreshPool(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	name, ok := variables["name"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	name, err := graphql.ParseStringRequired(variables, "name")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	v := validation.NewValidator()
+	v.MaxLength("name", name, validation.MaxNameLength).SafeString("name", name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	pool, err := service.RefreshPool(ctx, token, tenantID, hypervisorID, name)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "refresh storage pool")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"refreshStoragePool": pool,
-	}))
+	})
 }
 
 func handleListVolumes(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	poolName, ok := variables["poolName"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("poolName is required"))
+	poolName, err := graphql.ParseStringRequired(variables, "poolName")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	v := validation.NewValidator()
+	v.MaxLength("poolName", poolName, validation.MaxNameLength).SafeString("poolName", poolName)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
@@ -291,165 +295,187 @@ func handleListVolumes(ctx context.Context, w http.ResponseWriter, variables map
 	if f, ok := variables["filter"].(map[string]interface{}); ok {
 		filter = &StorageVolumeFilter{}
 		if search, ok := f["search"].(string); ok {
+			if len(search) > validation.MaxSearchLength {
+				graphql.WriteValidationError(w, "search term too long")
+				return
+			}
 			filter.Search = &search
 		}
 	}
 
 	volumes, err := service.ListVolumes(ctx, token, tenantID, hypervisorID, poolName, filter)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list storage volumes")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"storageVolumes":      volumes,
 		"storageVolumesCount": len(volumes),
-	}))
+	})
 }
 
 func handleGetVolume(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	poolName, ok := variables["poolName"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("poolName is required"))
+	poolName, err := graphql.ParseStringRequired(variables, "poolName")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	volumeName, ok := variables["volumeName"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("volumeName is required"))
+	volumeName, err := graphql.ParseStringRequired(variables, "volumeName")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	v := validation.NewValidator()
+	v.MaxLength("poolName", poolName, validation.MaxNameLength).SafeString("poolName", poolName)
+	v.MaxLength("volumeName", volumeName, validation.MaxNameLength).SafeString("volumeName", volumeName)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	volume, err := service.GetVolume(ctx, token, tenantID, hypervisorID, poolName, volumeName)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "get storage volume")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"storageVolume": volume,
-	}))
+	})
 }
 
 func handleCreateVolume(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	poolName, ok := variables["poolName"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("poolName is required"))
+	poolName, err := graphql.ParseStringRequired(variables, "poolName")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
 	inputRaw, ok := variables["input"].(map[string]interface{})
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("input is required"))
+		graphql.WriteValidationError(w, "input is required")
 		return
 	}
 
+	v := validation.NewValidator()
+	v.MaxLength("poolName", poolName, validation.MaxNameLength).SafeString("poolName", poolName)
+
 	input := &CreateVolumeInput{}
 	if name, ok := inputRaw["name"].(string); ok {
+		v.MaxLength("name", name, validation.MaxNameLength).SafeString("name", name)
+		v.Required("name", name)
 		input.Name = name
 	}
 	if capacity, ok := inputRaw["capacity"].(float64); ok {
-		input.Capacity = uint64(capacity)
+		cap := uint64(capacity)
+		// Limit capacity to 10TB
+		if cap > 10*1024*1024*1024*1024 {
+			graphql.WriteValidationError(w, "capacity exceeds maximum allowed (10TB)")
+			return
+		}
+		input.Capacity = cap
 	}
 	if format, ok := inputRaw["format"].(string); ok {
+		if err := graphql.ValidateEnum(format, volumeFormatValues, "format"); err != nil {
+			graphql.WriteValidationError(w, err.Error())
+			return
+		}
 		input.Format = format
 	}
 
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
+		return
+	}
+
 	if input.Name == "" || input.Capacity == 0 {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name and capacity are required"))
+		graphql.WriteValidationError(w, "name and capacity are required")
 		return
 	}
 
 	volume, err := service.CreateVolume(ctx, token, tenantID, hypervisorID, poolName, input)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "create storage volume")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"createStorageVolume": volume,
-	}))
+	})
 }
 
 func handleDeleteVolume(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	hypervisorIDStr, ok := variables["hypervisorId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("hypervisorId is required"))
-		return
-	}
-
-	hypervisorID, err := uuid.Parse(hypervisorIDStr)
+	hypervisorID, err := graphql.ParseUUID(variables, "hypervisorId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid hypervisorId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	poolName, ok := variables["poolName"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("poolName is required"))
+	poolName, err := graphql.ParseStringRequired(variables, "poolName")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	volumeName, ok := variables["volumeName"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("volumeName is required"))
+	volumeName, err := graphql.ParseStringRequired(variables, "volumeName")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	v := validation.NewValidator()
+	v.MaxLength("poolName", poolName, validation.MaxNameLength).SafeString("poolName", poolName)
+	v.MaxLength("volumeName", volumeName, validation.MaxNameLength).SafeString("volumeName", volumeName)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	if err := service.DeleteVolume(ctx, token, tenantID, hypervisorID, poolName, volumeName); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "delete storage volume")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"deleteStorageVolume": true,
-	}))
+	})
 }

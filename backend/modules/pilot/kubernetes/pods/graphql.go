@@ -2,14 +2,15 @@ package pods
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
-
-	"github.com/google/uuid"
 
 	"csd-pilote/backend/modules/platform/graphql"
 	"csd-pilote/backend/modules/platform/middleware"
+	"csd-pilote/backend/modules/platform/validation"
 )
+
+// Pod phase values for validation
+var podPhaseValues = []string{"Pending", "Running", "Succeeded", "Failed", "Unknown", ""}
 
 func init() {
 	service := NewService()
@@ -40,131 +41,164 @@ func init() {
 func handleListPods(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	clusterIDStr, ok := variables["clusterId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("clusterId is required"))
-		return
-	}
-
-	clusterID, err := uuid.Parse(clusterIDStr)
+	clusterID, err := graphql.ParseUUID(variables, "clusterId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid clusterId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
+	// Namespace is optional for listing pods
 	namespace, _ := variables["namespace"].(string)
+	if namespace != "" {
+		v := validation.NewValidator()
+		v.KubernetesName("namespace", namespace)
+		if v.HasErrors() {
+			graphql.WriteValidationError(w, v.FirstError())
+			return
+		}
+	}
 
 	var filter *PodFilter
 	if f, ok := variables["filter"].(map[string]interface{}); ok {
 		filter = &PodFilter{}
 		if search, ok := f["search"].(string); ok {
+			if len(search) > validation.MaxSearchLength {
+				graphql.WriteValidationError(w, "search term too long")
+				return
+			}
 			filter.Search = &search
 		}
 		if phase, ok := f["phase"].(string); ok {
+			if err := graphql.ValidateEnum(phase, podPhaseValues, "phase"); err != nil {
+				graphql.WriteValidationError(w, err.Error())
+				return
+			}
 			filter.Phase = &phase
 		}
 	}
 
 	pods, err := service.List(ctx, token, tenantID, clusterID, namespace, filter)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "list pods")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"pods":      pods,
 		"podsCount": len(pods),
-	}))
+	})
 }
 
 func handleGetPod(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	clusterIDStr, ok := variables["clusterId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("clusterId is required"))
-		return
-	}
-
-	clusterID, err := uuid.Parse(clusterIDStr)
+	clusterID, err := graphql.ParseUUID(variables, "clusterId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid clusterId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	namespace, ok := variables["namespace"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("namespace is required"))
+	namespace, err := graphql.ParseStringRequired(variables, "namespace")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	name, ok := variables["name"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	name, err := graphql.ParseStringRequired(variables, "name")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
+		return
+	}
+
+	// Validate Kubernetes names (RFC 1123)
+	v := validation.NewValidator()
+	v.KubernetesName("namespace", namespace)
+	v.KubernetesName("name", name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
 		return
 	}
 
 	pod, err := service.Get(ctx, token, tenantID, clusterID, namespace, name)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "get pod")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"pod": pod,
-	}))
+	})
 }
 
 func handleGetPodLogs(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	clusterIDStr, ok := variables["clusterId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("clusterId is required"))
-		return
-	}
-
-	clusterID, err := uuid.Parse(clusterIDStr)
+	clusterID, err := graphql.ParseUUID(variables, "clusterId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid clusterId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	namespace, ok := variables["namespace"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("namespace is required"))
+	namespace, err := graphql.ParseStringRequired(variables, "namespace")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	name, ok := variables["name"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	name, err := graphql.ParseStringRequired(variables, "name")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
+	// Validate Kubernetes names (RFC 1123)
+	v := validation.NewValidator()
+	v.KubernetesName("namespace", namespace)
+	v.KubernetesName("name", name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
+		return
+	}
+
+	// Container name is optional
 	container, _ := variables["container"].(string)
+	if container != "" {
+		v.KubernetesName("container", container)
+		if v.HasErrors() {
+			graphql.WriteValidationError(w, v.FirstError())
+			return
+		}
+	}
 
+	// Limit tailLines to prevent abuse (max 10000 lines)
 	var tailLines int64 = 100
 	if tl, ok := variables["tailLines"].(float64); ok {
 		tailLines = int64(tl)
+		if tailLines < 1 {
+			tailLines = 1
+		}
+		if tailLines > 10000 {
+			graphql.WriteValidationError(w, "tailLines cannot exceed 10000")
+			return
+		}
 	}
 
 	previous := false
@@ -174,59 +208,67 @@ func handleGetPodLogs(ctx context.Context, w http.ResponseWriter, variables map[
 
 	logs, err := service.GetLogs(ctx, token, tenantID, clusterID, namespace, name, container, tailLines, previous)
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "get pod logs")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"podLogs": logs,
-	}))
+	})
 }
 
 func handleDeletePod(ctx context.Context, w http.ResponseWriter, variables map[string]interface{}, service *Service) {
 	tenantID, ok := middleware.GetTenantIDFromContext(ctx)
 	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("Unauthorized"))
+		graphql.WriteUnauthorized(w)
 		return
 	}
 
 	token, _ := middleware.GetTokenFromContext(ctx)
 
-	clusterIDStr, ok := variables["clusterId"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("clusterId is required"))
-		return
-	}
-
-	clusterID, err := uuid.Parse(clusterIDStr)
+	clusterID, err := graphql.ParseUUID(variables, "clusterId")
 	if err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("invalid clusterId"))
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	namespace, ok := variables["namespace"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("namespace is required"))
+	namespace, err := graphql.ParseStringRequired(variables, "namespace")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
-	name, ok := variables["name"].(string)
-	if !ok {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse("name is required"))
+	name, err := graphql.ParseStringRequired(variables, "name")
+	if err != nil {
+		graphql.WriteValidationError(w, err.Error())
 		return
 	}
 
+	// Validate Kubernetes names (RFC 1123)
+	v := validation.NewValidator()
+	v.KubernetesName("namespace", namespace)
+	v.KubernetesName("name", name)
+	if v.HasErrors() {
+		graphql.WriteValidationError(w, v.FirstError())
+		return
+	}
+
+	// Limit gracePeriod to reasonable value (max 5 minutes)
 	var gracePeriod int64 = -1
 	if gp, ok := variables["gracePeriod"].(float64); ok {
 		gracePeriod = int64(gp)
+		if gracePeriod > 300 {
+			graphql.WriteValidationError(w, "gracePeriod cannot exceed 300 seconds")
+			return
+		}
 	}
 
 	if err := service.Delete(ctx, token, tenantID, clusterID, namespace, name, gracePeriod); err != nil {
-		json.NewEncoder(w).Encode(graphql.NewErrorResponse(err.Error()))
+		graphql.WriteError(w, err, "delete pod")
 		return
 	}
 
-	json.NewEncoder(w).Encode(graphql.NewDataResponse(map[string]interface{}{
+	graphql.WriteSuccess(w, map[string]interface{}{
 		"deletePod": true,
-	}))
+	})
 }

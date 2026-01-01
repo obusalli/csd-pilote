@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
+	"csd-pilote/backend/modules/platform/config"
 	"csd-pilote/backend/modules/platform/events"
 )
 
@@ -17,8 +18,26 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		// In production, validate origin properly
-		return true
+		// Validate origin against CORS allowed origins to prevent CSWSH attacks
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			// No origin header (same-origin request or non-browser client)
+			return true
+		}
+
+		cfg := config.GetConfig()
+		if cfg == nil {
+			return false
+		}
+
+		for _, allowed := range cfg.CORS.AllowedOrigins {
+			if allowed == "*" || allowed == origin {
+				return true
+			}
+		}
+
+		log.Printf("[WebSocket] Rejected connection from unauthorized origin: %s", origin)
+		return false
 	},
 }
 
